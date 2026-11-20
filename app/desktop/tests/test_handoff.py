@@ -533,7 +533,7 @@ class GateTests(unittest.TestCase):
         settings = json.loads((self.root / "work" / "damit_settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["suite_folder"], str(pack.resolve()))
         self.assertEqual(settings["terrain_source"], 1)
-        self.assertTrue(settings["local_dem"].endswith("/dem"))
+        self.assertEqual(Path(settings["local_dem"]).name, "dem")
         self.assertEqual(settings["only_ids"], "ND00199")
         self.assertIn("--SETTINGS=", self.calls_text())
 

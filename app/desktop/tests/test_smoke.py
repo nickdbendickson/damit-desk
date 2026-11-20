@@ -232,11 +232,13 @@ class ServedEngineTests(unittest.TestCase):
 
         meta = f'<meta name="damit-token" content="{API_TOKEN}">'.encode()
         self.assertIn(meta, body)
-        self.assertEqual(body.replace(meta, b"", 1), (WEB / "index.html").read_bytes())
+        served = body.replace(meta, b"", 1).replace(b"\r\n", b"\n")
+        on_disk = (WEB / "index.html").read_bytes().replace(b"\r\n", b"\n")
+        self.assertEqual(served, on_disk)
         self.assertIn("text/html", ctype)
         for ref in ASSET_RE.findall(body.decode("utf-8")):
             data, ctype = self.get("/" + ref)
-            self.assertEqual(data, (WEB / ref).read_bytes(), ref)
+            self.assertEqual(data.replace(b"\r\n", b"\n"), (WEB / ref).read_bytes().replace(b"\r\n", b"\n"), ref)
             if ref.endswith(".js"):
                 self.assertIn("javascript", ctype, f"{ref} served as {ctype}; module scripts need a JS type")
 

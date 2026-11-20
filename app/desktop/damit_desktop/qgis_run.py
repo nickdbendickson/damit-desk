@@ -278,6 +278,13 @@ def classify_env() -> dict[str, str]:
     return {**os.environ, "GDAL_PAM_ENABLED": "NO"}
 
 
+def _argv(cmd: list[str]) -> list[str]:
+    """Windows cannot CreateProcess a .cmd or .bat. Run those through cmd.exe. An .exe is unchanged."""
+    if os.name == "nt" and cmd and cmd[0].lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/d", "/c", subprocess.list2cmdline(cmd)]
+    return cmd
+
+
 def _run(
     cmd: list[str], timeout: float | None, cancel: threading.Event | None = None, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
@@ -288,7 +295,7 @@ def _run(
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        proc = subprocess.Popen(_argv(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                 errors="replace", env=env, **kwargs)
     except OSError as exc:
         return 127, f"Could not start {cmd[0]}: {exc}\n"
@@ -362,7 +369,7 @@ def help_text(exe: str, alg: str) -> str | None:
     key = (exe, alg)
     if key not in _ENUM_HELP:
         try:
-            out = subprocess.run([exe, "help", alg], capture_output=True, text=True, timeout=180,
+            out = subprocess.run(_argv([exe, "help", alg]), capture_output=True, text=True, timeout=180,
                                  stdin=subprocess.DEVNULL)
             if out.returncode == 0 and out.stdout.strip():
                 _ENUM_HELP[key] = out.stdout
