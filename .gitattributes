@@ -1,0 +1,3 @@
+# The built desk bundle is checked byte for byte against its Subresource Integrity hashes (index.html) and against a
+# fresh build in CI: never convert its line endings (a Windows checkout with core.autocrlf would break the hashes).
+app/desktop/damit_desktop/web/** -text

@@ -56,7 +56,12 @@ jobs:
           DAMIT_REPO: ${{ github.workspace }}/damit-ref
         run: node --experimental-strip-types --test "src/lib/crest/*.test.ts"
       - name: Build the desktop bundle
-        run: npm run build:desktop
+        # The committed bundle carries the SHA of the commit it was built on (scripts/crest-version.mjs); build with
+        # that SHA so the check below compares everything else.
+        run: |
+          sha=$(grep -rhoE '[0-9]+\.[0-9]+\.[0-9]+\+([0-9a-f]{7,}|local)' desktop/damit_desktop/web/assets | head -n1 | cut -d+ -f2)
+          echo "Committed bundle was built at: ${sha:-unknown}"
+          DAMIT_BUILD_SHA="$sha" npm run build:desktop
       - name: The committed bundle is the one src/ builds
         if: runner.os == 'Linux'
         run: git diff --exit-code -- desktop/damit_desktop/web
