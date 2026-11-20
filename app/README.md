@@ -1,6 +1,6 @@
-# damit_crest — DamIT Crest desktop app
+# DamIT Desk app (formerly DamIT Crest)
 
-DamIT Crest is the DamIT desktop desk: a pywebview window around a local web desk for dam breach screening —
+DamIT Desk is the DamIT desktop desk: a pywebview window around a local web desk for dam breach screening —
 breach hydrograph, schematic and terrain flood views, receptor ranking, results import, a printable report and
 datum-aware exports — plus the hand-off of a dam to the DamIT QGIS plugins from the **Report** step.
 
@@ -77,8 +77,9 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Windows uses WebView2 (built into Windows 11), macOS WebKit, Linux `pywebview[qt]`. If no window backend starts, the
-desk opens in the system browser. Optional packages: `pyinstaller damit_crest.spec` (Windows / Linux) or
+Windows uses WebView2 (built into Windows 11), macOS WebKit, Linux `pywebview[qt]` if you install it; `bin/damit-desk`
+on Linux skips pywebview and opens the system browser. If no window backend starts, the desk opens in the system
+browser and prints its address. Optional packages: `pyinstaller damit_crest.spec` (Windows / Linux) or
 `sh build_mac.sh` (macOS, Python 3.10–3.12) give `DamIT Crest.exe` / `DamIT Crest.app`.
 
 The local server listens on 127.0.0.1:47241 (Crest uses 47231, so both can run). Every `/api/` call needs the
@@ -104,15 +105,25 @@ Needs QGIS 3.28–4.x with the DamIT plugins installed. The buttons do nothing i
   runner CLI when Point X and Point Y (DEM CRS) are filled. It never starts a batch algorithm (none is published; the
   name `damit_run:batch` is reserved). The DEM comes from `dem.tif` in the work folder, the DEM field, the data folder
   DEM, or `DAMIT_DEM`.
-- **Classify** — hands the preset / custom choice, the model run's depth raster (typed path) and a flat dam record
-  to `damit:classify`.
+- **Classify** — hands the preset / custom choice, the model run's depth raster (typed or chosen path), a flat dam
+  record and the receptor layers to `damit:classify`. Receptors are the real structures, roads and rail lines for the
+  depth raster's area (`desktop/damit_desktop/real_receptors.py`: the DamIT data folder's `<STATE>/{nsi,hpms,fra_rail}`
+  GeoJSON, else USACE NSI, FHWA HPMS and FRA/BTS rail online) plus the receptors mapped on the desk; the desk's
+  schematic valley receptors are dropped for any layer found for real. A layer that could not be checked makes the
+  class INCOMPLETE (shown as "at least …"). An optional trains-per-day CSV (`DAMIT_RAIL_TRAINS_LOOKUP` or the Report
+  field) goes to `RAIL_TRAINS_LOOKUP`. `DAMIT_OFFLINE=1` skips the online lookups.
 
 Every call sends only the parameters the installed algorithm's `qgis_process help` lists (docs/HANDOFF.md).
 
 Before every run the app checks `qgis_process help <id>`; an algorithm that is not installed stops the job with the
 variable to set. The log is on the Report step. Environment: `QGIS_PROCESS` (path to `qgis_process`), `DAMIT_ALG_*`,
 `DAMIT_CLI`, `DAMIT_HANDOFF_CONFIG`, `DAMIT_PYTHON`, `DAMIT_DATA`, `DAMIT_DEM`, `DAMIT_WORK`, `DAMIT_WORK_ROOTS`,
-`DAMIT_SCREENING_TIMEOUT_S`.
+`DAMIT_SCREENING_TIMEOUT_S`, `DAMIT_PLUGIN_TIMEOUT_S` (Download layers / Atlas 14 / Find fills; default 3 h / 15 min /
+2 h), `DAMIT_RAIL_TRAINS_LOOKUP`, `DAMIT_OFFLINE`, `DAMSUITE_PREFIX` (where the suite installer put
+`qgis-process-damit.sh`).
+
+In a browser page (Linux) the desk server also lists folders for the in-page file chooser (`/api/fs/list`), keeps the
+chosen DEM (`/api/dem/*`) and writes exports (`/api/save`, into `/api/export_dir`); see `desktop/damit_desktop/browser_io.py`.
 
 ## Develop
 
