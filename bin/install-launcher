@@ -12,6 +12,7 @@ case "$(uname -s)" in
     DEST="${HOME}/Applications/${NAME}.app"
     mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
     cp "$ICON" "$DEST/Contents/Resources/damit-desk.svg"
+    # Executable name has no space: a space in CFBundleExecutable fails on some Macs.
     cat > "$DEST/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,19 +22,22 @@ case "$(uname -s)" in
   <key>CFBundleDisplayName</key><string>${NAME}</string>
   <key>CFBundleIdentifier</key><string>org.damit.desk</string>
   <key>CFBundleVersion</key><string>1</string>
-  <key>CFBundleExecutable</key><string>DamIT Desk</string>
+  <key>CFBundleExecutable</key><string>damit-desk</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSUIElement</key><false/>
 </dict>
 </plist>
 EOF
-    cat > "$DEST/Contents/MacOS/DamIT Desk" << EOF
-#!/bin/sh
+    cat > "$DEST/Contents/MacOS/damit-desk" << EOF
+#!/bin/bash
 exec "$ROOT/bin/damit-desk"
 EOF
-    chmod +x "$DEST/Contents/MacOS/DamIT Desk"
+    chmod +x "$DEST/Contents/MacOS/damit-desk"
+    # A file from a zip is quarantined; clear it so the first open is not blocked.
+    xattr -cr "$DEST" 2>/dev/null || true
     echo "Installed ${DEST}"
-    echo "Open it from Applications, or: open \"${DEST}\""
+    echo "Open it from Applications. If macOS says it cannot be opened, right-click it and choose Open."
     ;;
   Linux)
     DEST="${HOME}/.local/share/applications"
