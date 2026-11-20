@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { deleteOutline, loadOutlines, outlineSync, withoutOutline } from "./outline-store.ts";
 import { blankDam, SAMPLE_DAMS } from "./samples.ts";
+import { applyDefaults } from "./settings.ts";
+import { sharedNow } from "./settings-store.ts";
 import type { DamRecord, StepId } from "./types.ts";
 
 type DeskState = {
@@ -14,6 +16,8 @@ type DeskState = {
   add: () => void;
   /** Add a ready-made record (e.g. "New record from NID") and select it. */
   addDam: (dam: DamRecord) => void;
+  /** Set the desk to these dams (a desk file opened and merged, desk-file.ts) and select one. */
+  setDams: (dams: DamRecord[], activeId: string) => void;
   restore: () => void;
 };
 
@@ -114,7 +118,7 @@ export const deskStorage: StateStorage = {
       noteSave(false);
     } catch (e) {
       const detail = (e as Error).message;
-      console.warn(`DamIT Crest: could not save the desk in this browser (${detail}).`);
+      console.warn(`DamIT Desk: could not save the desk in this browser (${detail}).`);
       noteSave(true, detail);
     }
   },
@@ -147,10 +151,15 @@ export const useDesk = create<DeskState>()(
         });
       },
       add: () => {
-        const dam = blankDam();
+        // A new record starts from the shared defaults (Settings): starting pool, failure mode, equation, Manning's n.
+        const dam = applyDefaults(blankDam(), sharedNow().values);
         set({ dams: [...get().dams, dam], activeId: dam.id, step: "setup" });
       },
       addDam: (dam) => set({ dams: [...get().dams, dam], activeId: dam.id, step: "setup" }),
+      setDams: (dams, activeId) => {
+        if (!dams.length) return;
+        set({ dams, activeId: dams.some((d) => d.id === activeId) ? activeId : dams[0].id, step: "setup" });
+      },
       restore: () => set({ dams: SAMPLE_DAMS, activeId: SAMPLE_DAMS[0].id, step: "setup" }),
     }),
     // v2 (2026-10-29): the ND00199 sample changed (912 ft / H 28 -> 1072.24 NAVD88 / H 27.50; round 2 moved it to 1071.09, migrated below) and the
@@ -166,7 +175,7 @@ export const useDesk = create<DeskState>()(
     {
       name: "crest-desk-v2",
       skipHydration: true,
-      version: 3,
+      version: 4,
       migrate: migrateDesk,
       storage: createJSONStorage(() => deskStorage),
       partialize: (s) => persistedDesk(s) as unknown as DeskState,
@@ -216,6 +225,8 @@ export function applyPatch(d: DamRecord, patch: Partial<DamRecord>): DamRecord {
 }
 
 const OLD_ND00199_CLASS = "ND MEDIUM / TM11 Significant (DWR-2801 benchmark)";
+const OLD_ND00199_DATUM_NOTE =
+  "Crest converted from NGVD29 1070.0 ft (DWR Dams file; +1.09 ft VERTCON at the site); do not shift again.";
 
 /** Persisted desk state from an older version -> current. Only rewrites an unedited ND00199 sample. */
 export function migrateDesk(persisted: unknown, version: number): DeskState {
@@ -245,9 +256,20 @@ export function migrateDesk(persisted: unknown, version: number): DeskState {
   if (version < 3 && Array.isArray(state.dams)) {
     state.dams = state.dams.map((d) => (d.nid === "NEW" ? { ...d, nid: "" } : d));
   }
+  if (version < 4 && Array.isArray(state.dams)) {
+    // The sample's note named the "DWR Dams file" (a North Dakota source this desk does not read), and a new record
+    // carried a made-up DEM crest of 1550 ft (an invented 1450 ft local-datum offset). Only untouched values change.
+    const now = SAMPLE_DAMS.find((d) => d.id === "nd00199");
+    state.dams = state.dams.map((d) => {
+      let out = d;
+      if (now && d.id === "nd00199" && d.datumNote === OLD_ND00199_DATUM_NOTE) out = { ...out, datumNote: now.datumNote };
+      if (d.statedDatum === "Local" && d.demCrestFt === 1550 && d.crestFt === 100 && d.streambedFt === 82) out = { ...out, demCrestFt: Number.NaN };
+      return out;
+    });
+  }
   return state;
 }
 
-export function activeDam(state: DeskState): DamRecord {
+export function activeDam(state: Pick<DeskState, "dams" | "activeId">): DamRecord {
   return state.dams.find((d) => d.id === state.activeId) ?? state.dams[0];
 }

@@ -121,7 +121,7 @@ function ImportCard({ dam, result, source, run }: { dam: DamRecord; result: Anal
       </div>
       <p className="mt-1 text-xs text-muted">
         {source === "lisflood"
-          ? "Max depth (.max or *hmax*), velocity (.Vmax/.maxVc or *vmax*), arrival (.maxtm or *arr*); m, m/s and h are converted to ft, ft/s and h. A Runner dam.json in the folder or zip is used for the dam check."
+          ? "Max depth (.max or *hmax*), velocity (.Vmax/.maxVc or *vmax*), arrival (.inittm, arr_hr.tif, lisflood_arr_hr*.tif or Arrival Time.tif); m, m/s and h are converted to ft, ft/s and h. A Runner dam.json in the folder or zip is used for the dam check."
           : "Hmax_ft, Vmax_ftps and Arrival_Time_hr GeoTIFFs (ft, ft/s, h; nodata and zero depth are dry). The other DSS-WISE grids are listed but not used."}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -590,7 +590,7 @@ function RunnerWorklist() {
       </div>
       <p className="mt-1 text-sm text-muted">
         Dams in this browser whose breach releases at least the flood-size gate's volume and whose layer of record is still a terrain
-        layer, largest release first. Run each in the ND Breach Runner and import the run here.
+        layer, largest release first. Run each in the DamIT Runner (Report, Run the flood model) and import the run here.
       </p>
       {rows.length === 0 ? (
         <p className="mt-2 text-sm" data-testid="runner-worklist-empty">

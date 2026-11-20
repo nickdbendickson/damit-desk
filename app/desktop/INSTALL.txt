@@ -1,23 +1,31 @@
-DamIT Crest desktop
-===================
+DamIT Desk
+==========
 
 Python 3.10 or newer. Python 3.14 is fine. You do not need Node.
+The repository README.md has the full guide; this is the short version.
 
-1. Get the damit repository (git clone, or unzip a copy).
-2. Open a terminal and go into the damit_crest/desktop folder:
-     cd damit/damit_crest/desktop
-3. Install the window library (once):
-     python3 -m pip install -r requirements.txt
-4. Start the desk. Leave this terminal open.
-     python3 run.py
+1. Get the damit-desk repository (git clone, or unzip a copy).
+2. Open a terminal in that folder and start the desk. Leave it open.
+     bin/damit-desk            (Linux, Mac)
+     bin\damit-desk.cmd        (Windows)
+   Mac and Windows open a window. Linux opens your browser through a
+   one-time launch link (valid 2 minutes, used once). If no browser starts,
+   the link is printed in the terminal: open it yourself. Ctrl+C in the
+   terminal closes the desk.
+3. Point the desk at the DamIT plugins: it finds ~/dam-suite/qgis-process-damit.sh
+   from the suite installer by itself. After install-all.sh --sandbox DIR, start
+   it with QGIS_PROCESS=DIR/qgis-process-damit.sh bin/damit-desk.
 
-If the window does not open, the desk opens in your browser instead.
-The same terminal has to stay open while you use the desk.
+The address printed at start (http://127.0.0.1:47241/index.html) has no
+key in it: typed into a browser it shows the desk, but the buttons that
+use this computer (layers, dam folder, screening, model, classify) are
+refused. Use the window. If you closed the browser tab or the link
+expired, stop the desk (Ctrl+C) and start it again.
 
 Report step — DamIT plugins in QGIS
 -----------------------------------
 These buttons need QGIS (3.28 to 4.x) and the DamIT plugins installed.
-Set QGIS_PROCESS if qgis_process is not on PATH.
+Set QGIS_PROCESS to the suite's qgis-process-damit.sh if it is not in ~/dam-suite.
 
 Algorithm ids (defaults; see docs/HANDOFF.md to change them):
   damit:classify          hazard classification (damit_hazard)
@@ -64,8 +72,18 @@ Run the flood model
 
 Classify
   Sends the jurisdiction choice (preset or custom methods, Report step),
-  the model run's depth raster (type its path) and the dam record to
-  damit:classify.
+  the model run's depth raster, the dam record and the real structures,
+  roads and rail lines in the flood area (the DamIT data folder, else USACE
+  NSI, FHWA HPMS and the national rail network online) to damit:classify.
+  A layer it could not check makes the class "at least ..., INCOMPLETE".
+  Rail is High only with a trains-per-day CSV (Report field, or
+  DAMIT_RAIL_TRAINS_LOOKUP).
+
+Download layers, Atlas 14 point, Find fills
+  Cancel stops them and everything they started. They stop by themselves
+  after 3 h, 15 min and 2 h (DAMIT_PLUGIN_TIMEOUT_S: one limit for all,
+  0 = none). Find fills gets the state's NID dams, so a listed dam is not
+  reported as new.
 
 A blank work folder means ~/DamITDams.
 The desk screen is not an official hazard class; the engineer of record

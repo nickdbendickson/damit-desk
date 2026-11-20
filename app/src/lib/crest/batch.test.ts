@@ -300,7 +300,7 @@ describe("worklist order and CSV", () => {
     const now = new Date("2027-06-01T00:00:00Z");
     const csv = batchCsv(rows, { nidFetchedUtc: "2026-10-29T21:56:00Z", state: "ND", now }).trim().split("\n");
     assert.match(csv[0], /^# Screening estimate/);
-    assert.equal(csv[1], `# DamIT Crest ${CREST_VERSION}; ${ENGINE_VERSION}. Written 2027-06-01.`);
+    assert.equal(csv[1], `# DamIT Desk ${CREST_VERSION}; ${ENGINE_VERSION}. Written 2027-06-01.`);
     assert.match(csv[2], /^# NID inventory \(ND\) pulled 2026-10-29 \(7 months old; stale, past 180 days: "Download latest" in the NID picker refreshes it\)$/);
     assert.equal(csv[3], BATCH_CSV_HEAD.join(","));
     assert.equal(csv.length, 4 + rows.length);

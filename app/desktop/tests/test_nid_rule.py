@@ -142,7 +142,7 @@ class AdapterTests(unittest.TestCase):
                 nid_rule.candidates = orig
 
     def test_the_desktop_build_ships_catalogs_file(self):
-        spec = (HERE.parent / "damit_crest.spec").read_text(encoding="utf-8")
+        spec = (HERE.parent / "damit_desk.spec").read_text(encoding="utf-8")
         self.assertIn('("../../damit_catalog/handoff.py", "damit_catalog")', spec)
         self.assertIn('"damit_desktop.nid_rule"', spec)
         self.assertTrue((HERE.parent / "../../damit_catalog/handoff.py").resolve().is_file())

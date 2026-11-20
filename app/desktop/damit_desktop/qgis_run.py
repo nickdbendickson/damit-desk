@@ -36,6 +36,7 @@ from damit_desktop.handoff import (
     write_named_files,
 )
 from damit_desktop.layers import data_dem, download_aoi, find_data_folder, use_data_folder, write_settings
+from damit_desktop import localdem, real_receptors
 from damit_desktop.receptors import LAYERS as RECEPTOR_LAYERS
 from damit_desktop.receptors import structure_points, write_receptor_layers
 
@@ -81,10 +82,23 @@ def model_choice(name: str | None) -> tuple[str, str, bool]:
     return MODELS.get(str(name or "lisflood"), MODELS["lisflood"])
 
 
+def suite_qgis_process() -> Path:
+    """The DamIT qgis_process the suite installer writes (install-all.sh / install-all-windows.cmd): QGIS from its
+    conda env with the DamIT plugins' profile. In DAMSUITE_PREFIX, else ~/dam-suite. A --sandbox install writes it in
+    the sandbox folder instead; set QGIS_PROCESS to that one."""
+    prefix = Path(os.environ.get("DAMSUITE_PREFIX") or Path.home() / "dam-suite").expanduser()
+    return prefix / ("qgis-process-damit.cmd" if os.name == "nt" else "qgis-process-damit.sh")
+
+
 def find_qgis_process() -> str | None:
+    """QGIS_PROCESS; else the suite installer's DamIT qgis_process (a bare qgis_process uses the default QGIS profile,
+    where the DamIT algorithms are usually missing); else qgis_process on PATH; else the Mac QGIS apps."""
     chosen = os.environ.get("QGIS_PROCESS")
     if chosen and Path(chosen).is_file():
         return chosen
+    suite = suite_qgis_process()
+    if suite.is_file():
+        return str(suite)
     found = shutil.which("qgis_process")
     if found:
         return found
@@ -142,8 +156,24 @@ def work_dir(requested: str | None) -> Path:
     return path.resolve()
 
 
+#: The desk's own settings file (set by __main__.main): the local DEM chosen with "Choose DEM" is read from it, so the
+#: plugins get the same terrain the desk draws with.
+DESK_SETTINGS_FILE: Path | None = None
+
+
+def desk_dem() -> str | None:
+    """The local DEM chosen in the desk (Flood step, "Choose DEM"), when that file still exists."""
+    try:
+        chosen = localdem.read_dem_path(DESK_SETTINGS_FILE) if DESK_SETTINGS_FILE else None
+    except (OSError, ValueError):
+        return None
+    return chosen if chosen and Path(chosen).is_file() else None
+
+
 def dem_path(work: Path, dam: dict, source: str = "data") -> str | None:
-    for raw in (dam.get("demPath"), os.environ.get("DAMIT_DEM"), work / "dem.tif", work / "dem.vrt"):
+    """The DEM the plugins get: the Report step's DEM field, else DAMIT_DEM, else the DEM chosen in the desk, else
+    <work>/dem.tif or dem.vrt (Get layers), else the DamIT data folder's DEM."""
+    for raw in (dam.get("demPath"), os.environ.get("DAMIT_DEM"), desk_dem(), work / "dem.tif", work / "dem.vrt"):
         if not raw:
             continue
         path = Path(str(raw)).expanduser()
@@ -172,7 +202,7 @@ def _ready(text: str) -> bool | None:
 
 
 # Internal sentinels for a run we stopped ourselves. Kept clear of the common real exit codes 124 (coreutils
-# timeout) and 130 (SIGINT) so a plugin that genuinely exits 124/130 is not misread as a DamIT Crest timeout/cancel.
+# timeout) and 130 (SIGINT) so a plugin that genuinely exits 124/130 is not misread as a DamIT Desk timeout/cancel.
 STOPPED_TIMEOUT = 224
 STOPPED_CANCEL = 230
 
@@ -238,7 +268,7 @@ _OUTPUT_HEAD_CHARS = 100_000
 _OUTPUT_TAIL_CHARS = 100_000
 
 
-def _collect_bounded(stream, head_cap: int = _OUTPUT_HEAD_CHARS, tail_cap: int = _OUTPUT_TAIL_CHARS) -> str:
+def _collect_bounded(stream, head_cap: int = _OUTPUT_HEAD_CHARS, tail_cap: int = _OUTPUT_TAIL_CHARS, on_line=None) -> str:
     """Read all of stream but retain only the first head_cap and last tail_cap characters, with a count of the
     dropped middle. Reads in blocks so the full output is never held in memory at once."""
     head: list[str] = []
@@ -248,11 +278,18 @@ def _collect_bounded(stream, head_cap: int = _OUTPUT_HEAD_CHARS, tail_cap: int =
     dropped = 0
     while True:
         try:
-            block = stream.read(8192)
+            # Line by line when the caller streams the log: a text pipe's read(8192) waits for 8192 characters,
+            # so a quiet plugin showed nothing until it ended.
+            block = stream.readline() if on_line is not None else stream.read(8192)
         except (ValueError, OSError):
             break  # stream closed while the process was being stopped
         if not block:
             break
+        if on_line is not None:
+            try:
+                on_line(block)
+            except Exception:
+                pass  # a log callback never stops the run
         if head_len < head_cap:
             take = min(len(block), head_cap - head_len)
             head.append(block[:take])
@@ -290,11 +327,13 @@ def _argv(cmd: list[str]) -> list[str]:
 
 
 def _run(
-    cmd: list[str], timeout: float | None, cancel: threading.Event | None = None, env: dict[str, str] | None = None
+    cmd: list[str], timeout: float | None, cancel: threading.Event | None = None, env: dict[str, str] | None = None,
+    on_line=None,
 ) -> tuple[int, str]:
     """Run cmd and return (exit code, output). timeout (seconds) gives 124, cancel.set() gives 130;
     both stop the process (and its children) and keep the output so far. Very long output is kept head + tail only.
-    env: the child's environment (None = this process's)."""
+    env: the child's environment (None = this process's). on_line(line) gets each output line as it is printed
+    (the live log); see _run_logged."""
     kwargs = {"start_new_session": True} if os.name == "posix" else {}
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -305,7 +344,7 @@ def _run(
         return 127, f"Could not start {cmd[0]}: {exc}\n"
     captured: list[str] = []
     reader = threading.Thread(
-        target=lambda: captured.append(_collect_bounded(proc.stdout) if proc.stdout else ""), daemon=True
+        target=lambda: captured.append(_collect_bounded(proc.stdout, on_line=on_line) if proc.stdout else ""), daemon=True
     )
     reader.start()
     start = time.monotonic()
@@ -330,8 +369,56 @@ def _run(
     if stopped == STOPPED_TIMEOUT:
         return stopped, out + f"\nStopped: the command ran longer than {timeout:g} s.\n"
     if stopped == STOPPED_CANCEL:
-        return stopped, out + "\nStopped: cancelled in DamIT Crest.\n"
+        return stopped, out + "\nStopped: cancelled in DamIT Desk.\n"
     return proc.returncode, out
+
+
+#: Live lines per run sent to the job log as they come; past this the rest is logged (head + tail) when it ends.
+_LIVE_CHARS = _OUTPUT_HEAD_CHARS // 2
+
+
+def _run_logged(cmd: list[str], log, timeout: float | None, cancel: threading.Event | None = None,
+                env: dict[str, str] | None = None) -> tuple[int, str]:
+    """_run with its output in the job log while it runs (the desk polls the log every second). Whatever was not
+    streamed (past _LIVE_CHARS, and the Stopped: note) is logged when the run ends. Returns _run's (code, text)."""
+    state = {"n": 0, "live": True, "sent": []}
+
+    def on_line(line: str) -> None:
+        if not state["live"]:
+            return
+        if state["n"] + len(line) > _LIVE_CHARS:
+            state["live"] = False
+            log("[… live output paused here; the rest of it is shown when the run ends …]")
+            return
+        state["n"] += len(line)
+        state["sent"].append(line)
+        log(line.rstrip("\r\n"))
+
+    code, text = _run(cmd, timeout=timeout, cancel=cancel, env=env, on_line=on_line)
+    sent = "".join(state["sent"])
+    rest = text[len(sent):] if text.startswith(sent) else ("" if not sent else text)
+    if rest.strip():
+        log(rest.strip("\n"))
+    return code, text
+
+
+def plugin_timeout(role: str, environ=None) -> float | None:
+    """Seconds a Download layers / Atlas 14 / Find fills job may run: DAMIT_PLUGIN_TIMEOUT_S (0 = no limit), else
+    PLUGIN_TIMEOUTS. A state download is the long one; a stuck one is stopped instead of running for ever."""
+    env = os.environ if environ is None else environ
+    raw = env.get("DAMIT_PLUGIN_TIMEOUT_S")
+    if raw not in (None, ""):
+        try:
+            seconds = float(raw)
+        except (TypeError, ValueError):
+            seconds = None
+        if seconds is not None and seconds == seconds:
+            return seconds if seconds > 0 else None
+    return PLUGIN_TIMEOUTS.get(role)
+
+
+#: Default limits (seconds): Download layers 3 h, Atlas 14 point 15 min, Find fills 2 h.
+PLUGIN_TIMEOUTS = {"data": 3 * 3600.0, "pmp": 15 * 60.0, "finder": 2 * 3600.0}
 
 
 _ENUM_HELP: dict[tuple[str, str], str | None] = {}
@@ -492,7 +579,7 @@ def _missing_alg(log, exe: str, cfg: HandoffConfig, role: str, what: str) -> Non
     reason = help_failure(exe, alg) or f"qgis_process help {alg} failed"
     log(f"{reason} {what} was not started.")
     log(
-        f"Install the DamIT plugin that provides it, or point DamIT Crest at the published id with "
+        f"Install the DamIT plugin that provides it, or point DamIT Desk at the published id with "
         f"{'DAMIT_ALG_' + role.upper()} or damit-handoff.json (docs/HANDOFF.md). ND suite ids are not used as a fallback."
     )
 
@@ -539,6 +626,52 @@ def _prepare(dam: dict, analysis: dict, work: str | None, log, files=None, appen
 SETTINGS_DIR: Path | None = None
 
 
+CHECK_ROLES = ("preflight", "runchain", "rundam", "classify")   # the roles the Report step's buttons call
+CHECK_TIMEOUT_S = 180.0
+
+
+def run_check(log, cancel: threading.Event | None = None, config: HandoffConfig | None = None) -> dict:
+    """'Check QGIS hand-off' (install test 2026-11-18): qgis_process is found, which QGIS profile it reads, and every
+    algorithm the buttons call (DamIT defaults or damit-handoff.json overrides) is registered there
+    (`qgis_process help <id>`). Runs no dam and writes nothing."""
+    cfg = handoff_config(config)
+    exe = find_qgis_process()
+    if not exe:
+        log("qgis_process was not found. Install the DamIT plugins with the suite installer (install-all.sh) and start "
+            "the desk with QGIS_PROCESS set to its qgis-process-damit.sh (.cmd on Windows), or put qgis_process on PATH.")
+        return {"ok": False, "check": []}
+    log(f"qgis_process: {exe}")
+    custom = os.environ.get("QGIS_CUSTOM_CONFIG_PATH")
+    log("QGIS profile it reads: " + (f"default profile under {custom}" if custom else
+                                     "the default profile, unless the qgis_process launcher sets its own "
+                                     "(QGIS_CUSTOM_CONFIG_PATH is not set for the desk)"))
+    if custom:
+        link = Path(custom) / "profiles" / "default"
+        log(f"  -> {os.path.realpath(link)}" if link.exists() else
+            f"  -> {link} does not exist: the launcher's link is missing")
+    for problem in cfg.problems:
+        log(f"Handoff config: {problem}")
+    rows = []
+    for role in CHECK_ROLES:
+        if cancel is not None and cancel.is_set():
+            log("Cancelled.")
+            return {"ok": False, "cancelled": True, "check": rows}
+        alg = cfg.alg(role)
+        code, out = _run([exe, "help", alg], CHECK_TIMEOUT_S, cancel)
+        found = code == 0 and alg in out
+        rows.append({"role": role, "algorithm": alg, "found": found})
+        where = "" if cfg.sources.get(role, "default") == "default" else f", from {cfg.sources[role]}"
+        log(f"{'OK     ' if found else 'MISSING'} {alg}  ({role}{where})")
+        if not found:
+            for ln in [x for x in out.strip().splitlines() if x.strip()][-2:]:
+                log(f"        {ln}")
+    ok = all(r["found"] for r in rows)
+    log("The hand-off is ready: every algorithm the buttons call is in QGIS." if ok else
+        "Not ready: install or enable the missing DamIT plugins in that profile (DamIT Screener for damit_screen:, "
+        "DamIT Runner for damit_run:, DamIT Hazard for damit:), then check again.")
+    return {"ok": ok, "check": rows}
+
+
 def handoff_config(config: HandoffConfig | None = None) -> HandoffConfig:
     """The resolved algorithm ids. Read for every job, so an edited damit-handoff.json applies without a restart."""
     return config if config is not None else load_config(SETTINGS_DIR)
@@ -552,14 +685,24 @@ def _log_config(log, cfg: HandoffConfig, roles: tuple[str, ...]) -> None:
         log(f"{role}: {cfg.alg(role)}{where}")
 
 
-def _settings_path(root: Path, log, only_ids: str | None = None, classification: dict | None = None) -> Path:
-    """damit_settings.json for --SETTINGS (always written: it carries dam_ids, so the chain screens this dam only)."""
+def _settings_path(root: Path, log, only_ids: str | None = None, classification: dict | None = None,
+                   dem: str | None = None) -> Path:
+    """damit_settings.json for --SETTINGS (always written: it carries dam_ids, so the chain screens this dam only).
+
+    dem: the DEM this run hands the screener as TERRAIN (dem_path). It also goes into the settings (terrain,
+    local_dem, larger_clips 2) so every larger clip of the screening flood reads it too. Before 2026-11-20 only the
+    data folder's DEM or <work>/dem.tif went there, so with a DEM typed or chosen in the desk the first clip used it
+    and every larger clip downloaded USGS 3DEP afresh (Absaraka: 3 -> 6 -> 12 km of downloads, then the time limit)."""
     data = find_data_folder()
-    dem = data_dem(data)
     local_dem = str(root / "dem.tif") if (root / "dem.tif").is_file() else None
-    path = write_settings(root, data, dem or local_dem, only_ids, classification)
+    terrain = dem or data_dem(data) or local_dem
+    path = write_settings(root, data, terrain, only_ids, classification)
     if data:
         log(f"Screening settings use the DamIT data folder: {data}")
+    if terrain:
+        log(f"Screening terrain: {terrain} (the larger clips read it too, not a USGS 3DEP download).")
+    else:
+        log("Screening terrain: none given, so the screener downloads USGS 3DEP for each clip.")
     return path
 
 
@@ -668,7 +811,7 @@ def _result_line(row: dict) -> str:
     return (
         text
         + " A suggested screening result, not an official class; the engineer of record and the regulating agency"
-        " decide. The DamIT Crest record is not changed."
+        " decide. The DamIT Desk record is not changed."
     )
 
 
@@ -709,7 +852,7 @@ def _package_line(dam_id: str, block: dict) -> str:
 
 def screening_receptors(folder: Path, dam: dict, dam_id: str, receptors=None) -> tuple[Path | None, int]:
     """<dam folder>/screen_inputs/receptors.geojson: the desk's structures as one point layer (EPSG:4326) for the
-    screening chain's RECEPTORS (dam_id, receptor_type, structure_type, habitable, occupants). (None, 0) when there
+    screening chain's RECEPTORS (dam_id, receptor_type, structure_type, habitable, occupants, source). (None, 0) when there
     are none. Roads, rail and the other layers are for damit:classify only."""
     pts = structure_points(dam, receptors)
     if not pts:
@@ -720,7 +863,10 @@ def screening_receptors(folder: Path, dam: dict, dam_id: str, receptors=None) ->
             "id": str(props.get("crest_id") or props.get("id") or f"s{i + 1}"), "dam_id": dam_id,
             "receptor_type": "structure", "structure_type": props.get("type") or "home",
             "habitable": props.get("habitable") if isinstance(props.get("habitable"), bool) else None,
-            "occupants": props.get("occupants"), "name": props.get("name")}})
+            "occupants": props.get("occupants"), "name": props.get("name"),
+            # where the structure came from ("nd911" = an ND 911 address point): DamIT Hazard's chart plots only 911
+            # points and structures an engineer reviewed habitable
+            "source": props.get("source"), "source_ref": props.get("source_ref")}})
     out = Path(folder) / "screen_inputs"
     out.mkdir(parents=True, exist_ok=True)
     path = out / "receptors.geojson"
@@ -765,7 +911,7 @@ def run_screening(
     exe = find_qgis_process()
     if not exe:
         log("qgis_process was not found. The screening chain was not started.")
-        log("Install QGIS (3.28 or newer), or set QGIS_PROCESS to the qgis_process program.")
+        log("Install the DamIT plugins with the suite installer (install-all.sh), or set QGIS_PROCESS to its qgis-process-damit.sh (.cmd on Windows).")
         return {"ok": False, "stopped": True, "folder": str(folder), "work": str(root)}
     if not algorithm_available(exe, preflight_alg):
         _missing_alg(log, exe, cfg, "preflight", "The screening")
@@ -777,14 +923,14 @@ def run_screening(
     has_id = bool(dam.get("nid") or dam.get("nidId") or dam.get("id"))
     # only_ids is the NID ID alone (or the record id of a new dam / sample): never another inventory's id for it.
     only = dam_id if has_id else None
-    settings = _settings_path(root, log, only, _classification(dam))
+    dem = dem_path(root, dam, "data")
+    settings = _settings_path(root, log, only, _classification(dam), dem)
     point = write_dam_point(folder, dam, analysis or {})
     if point:
         log(f"Wrote {point} (this dam as a point layer for DAMS; DamIT field names, EPSG:4326).")
     else:
         log("The dam has no position (breach point, reservoir point or lon/lat), so no DAMS layer was written.")
     choice = _choice(dam)
-    dem = dem_path(root, dam, "data")
     rec_layer, rec_count = screening_receptors(folder, dam, dam_id, receptors)
     if rec_layer:
         log(f"Wrote {rec_layer} ({rec_count} structure point(s) for RECEPTORS: the 2D screening flood samples them).")
@@ -810,19 +956,18 @@ def run_screening(
     log(f"Jurisdiction: {jur}"
         + (f", methods {choice['methods']}" if choice["methods"] else "") + ".")
     log(f"Preflight: {exe} run {preflight_alg}")
-    code, text = _run(
+    code, text = _run_logged(
         [exe, "run", preflight_alg, *_args(exe, preflight_alg, {**common(preflight_alg), "REPORT": str(report)}, log)],
+        log,
         timeout=180,
         cancel=cancel,
     )
     if code == STOPPED_CANCEL:
-        log(text.rstrip())
         log(f"Cancelled. {chain_alg} was not started.")
         return {"ok": False, "stopped": True, "cancelled": True, "folder": str(folder), "work": str(root)}
     report_text = ""
     if report.is_file():
         report_text = report.read_text(encoding="utf-8", errors="replace")
-    log(text.rstrip())
     if report_text.strip() and report_text.strip() not in text:
         log(report_text.rstrip())
     ready = _ready(text + "\n" + report_text)
@@ -846,9 +991,9 @@ def run_screening(
     # DamIT Screener's 2D screening flood keeps its maxima (partial) at 0.8 x DAMIT_SCREENING_TIMEOUT_S, so the
     # chain finishes inside the limit with a preliminary class instead of being stopped
     chain_env = {**os.environ, "DAMIT_SCREENING_TIMEOUT_S": f"{limit:g}"} if limit else None
-    code, text = _run([exe, "run", chain_alg, *_args(exe, chain_alg, chain_values, log)], timeout=limit, cancel=cancel,
-                      env=chain_env)
-    log(text.rstrip())
+    started = time.time()
+    code, text = _run_logged([exe, "run", chain_alg, *_args(exe, chain_alg, chain_values, log)], log, timeout=limit,
+                             cancel=cancel, env=chain_env)
     if chain_log.is_file():
         written = chain_log.read_text(encoding="utf-8", errors="replace").rstrip()
         if written and written not in text:
@@ -858,11 +1003,22 @@ def run_screening(
     other = [n for n in found if n.upper() != dam_id.upper()]
     if other:
         log(f"The screening outputs also name this dam {', '.join(other)}, which is not its NID ID {dam_id}. "
-            "DamIT Crest reads results by the NID ID only; check the screener's dam inventory is the NID.")
+            "DamIT Desk reads results by the NID ID only; check the screener's dam inventory is the NID.")
     out = {"folder": str(folder), "work": str(root), "chainIds": names}
-    if code in (STOPPED_TIMEOUT, STOPPED_CANCEL):
+    if code == STOPPED_CANCEL:
         log("The screening chain was stopped. Its outputs so far stay in the work folder; chain_log.txt has the steps that ran.")
-        return {**out, "ok": False, "stopped": True, "cancelled": code == STOPPED_CANCEL, "timedOut": code == STOPPED_TIMEOUT}
+        return {**out, "ok": False, "stopped": True, "cancelled": True, "timedOut": False}
+    # A flood stopped by its time limit is a PARTIAL result. DamIT Screener 0.3.7 (damit #146) finishes the chain OK
+    # and marks it partial (partial=true, partial_reason=time_limit); 0.3.5-0.3.6 failed the chain with "did not run".
+    # Either way this run's package and steps.json say so, so this is checked after a successful chain too.
+    partial = screening_partial(root, folder, dam_id, started, desk_timeout=code == STOPPED_TIMEOUT)
+    if partial is not None:
+        return _partial_result(out, partial, dam_id, log, chain_failed=code != 0)
+    if code == STOPPED_TIMEOUT:
+        log("The screening chain was stopped at its time limit before it wrote a preliminary result. Its outputs so "
+            "far stay in the work folder; chain_log.txt has the steps that ran. Raise DAMIT_SCREENING_TIMEOUT_S, or "
+            "give the screening a local DEM so its larger clips do not download USGS 3DEP.")
+        return {**out, "ok": False, "stopped": True, "cancelled": False, "timedOut": True}
     if code != 0:
         log("The screening chain failed. The flood model was not started.")
         return {**out, "ok": False, "stopped": True}
@@ -880,6 +1036,101 @@ def run_screening(
         log("No hand-off package and no 10_reports/summary.csv row for this dam (the chain plan may not include them).")
     log("Screening chain finished.")
     return {**out, "ok": True, "stopped": False, "chainResult": rows}
+
+
+
+def _fresh_json(path: Path, since: float) -> dict | None:
+    """A JSON object written at or after `since` (this run), else None: an older run's file is never read as this one's."""
+    try:
+        if not path.is_file() or path.stat().st_mtime < since - 2:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_timeout: bool = False) -> dict | None:
+    """A screening whose 2D flood stopped at its time limit but still wrote this run's hand-off package.
+
+    DamIT Screener keeps its 2D flood's maxima when the flood reaches 0.8 x DAMIT_SCREENING_TIMEOUT_S and marks the
+    engine2d step GAP ("partial: time limit"). Screener 0.3.7+ (damit #146) also sets partial=true /
+    partial_reason=time_limit on the step and on the package's engine2d gap, and finishes the chain OK; 0.3.5-0.3.6
+    failed the chain (FAIL_ON_ERROR) saying the flood "did not run". Its maxima so far are a lower bound. Returns
+    {"screening", "handoff", "flood", "otherGaps"} when this run's package exists and the flood timed out (or the
+    desk itself stopped the chain at its limit), else None. Same reading as DamIT Crest (damit #146)."""
+    package = handoff_package(root, dam_id)
+    pkg = _fresh_json(package, since)
+    if pkg is None:
+        return None
+    # The package may have no preliminary class (no receptors were screened, so the suggestion was not computed):
+    # the time-limited flood is still a partial result, with its figures and rasters, just no class.
+    screening = pkg.get("screening") if isinstance(pkg.get("screening"), dict) else {}
+    steps = _fresh_json(Path(folder) / "steps.json", since) or {}
+    engine = steps.get("engine2d") if isinstance(steps.get("engine2d"), dict) else {}
+    stats = engine.get("stats") if isinstance(engine.get("stats"), dict) else {}
+    gaps = [g for g in (pkg.get("gaps") or []) if isinstance(g, dict)]
+    flood_gap = next((g for g in gaps if g.get("step") == "engine2d"), None)
+    timed_out = (bool(engine.get("partial")) or bool((flood_gap or {}).get("partial")) or bool(stats.get("timed_out"))
+                 or "time limit" in str((flood_gap or {}).get("detail") or ""))
+    if not (timed_out or desk_timeout):
+        return None
+    flood = {"timedOut": timed_out, "detail": engine.get("detail") or (flood_gap or {}).get("detail") or "",
+             "acres": stats.get("flooded_acres"), "maxDepthFt": stats.get("max_depth_ft"),
+             "simHours": stats.get("sim_time_hr"), "runSeconds": stats.get("run_s"), "edge": stats.get("edge_flag"),
+             "rasters": {k: v for k, v in (engine.get("rasters") or {}).items() if isinstance(v, str) and Path(v).is_file()}
+             if isinstance(engine.get("rasters"), dict) else {}}
+    return {"screening": screening, "handoff": str(package), "flood": flood,
+            "otherGaps": [g for g in gaps if g.get("step") != "engine2d"]}
+
+
+def _partial_result(out: dict, partial: dict, dam_id: str, log, chain_failed: bool = True) -> dict:
+    flood = partial["flood"]
+    label = partial["screening"].get("suggested_label")
+    bits = []
+    if flood.get("acres") is not None:
+        bits.append(f"{flood['acres']:,} ac")
+    if flood.get("maxDepthFt") is not None:
+        bits.append(f"max {flood['maxDepthFt']} ft")
+    if flood.get("simHours") is not None:
+        bits.append(f"{flood['simHours']} h of model time")
+    if flood.get("runSeconds") is not None:
+        bits.append(f"stopped after {float(flood['runSeconds']) / 60:.0f} min")
+    if label:
+        warning = (f"PARTIAL SCREENING: the screening flood reached its time limit ({', '.join(bits) or 'no figures'}), "
+                   f"so the preliminary class {label} rests on a flood that had not finished spreading. It is a lower "
+                   "bound for review, not a result to rely on.")
+    else:
+        warning = (f"PARTIAL SCREENING: the screening flood reached its time limit ({', '.join(bits) or 'no figures'}). "
+                   "Its depths and wet area so far are a lower bound for review, and there is no preliminary class "
+                   "(the screener computed no suggestion for this run). Use Classify on a finished flood for the class.")
+    log("")
+    log(warning)
+    if chain_failed:
+        log("The screener's chain says the flood \"did not run\" and fails because of the time limit (FAIL_ON_ERROR, "
+            "DamIT Screener 0.3.5-0.3.6). The flood did run; its maxima so far are kept" +
+            (", and the hand-off package below has the preliminary class." if label else "."))
+    else:
+        log("The screener marked the flood PARTIAL (time limit) and finished the chain; its maxima so far are kept" +
+            (", and the hand-off package below has the preliminary class." if label else "."))
+    for name, path in (flood.get("rasters") or {}).items():
+        log(f"Partial screening raster ({name}): {path}")
+    if flood.get("edge"):
+        log("The flood also reached the edge of its terrain, so it is cut off there as well.")
+    for gap in partial.get("otherGaps") or []:
+        log(f"Also a gap in the {gap.get('step')} step: {gap.get('detail')}")
+    log(f"Hand-off package: {partial['handoff']}")
+    log(_package_line(dam_id, partial["screening"]))
+    log("Raise DAMIT_SCREENING_TIMEOUT_S, or run the flood model (LISFLOOD-FP) for a finished flood.")
+    log("Screening chain finished with a PARTIAL (preliminary) result.")
+    return {**out, "ok": True, "partial": True, "stopped": False, "timedOut": True, "warning": warning,
+            "handoff": partial["handoff"], "screening": partial["screening"], "flood": flood, "chainResult": []}
+
+
+def _dam_line_layer(folder: Path) -> Path | None:
+    """The drawn dam line write_dam_folder wrote (longitude / latitude GeoJSON), or None."""
+    path = Path(folder) / "dam_line.geojson"
+    return path if path.is_file() else None
 
 
 def run_model(
@@ -940,12 +1191,14 @@ def run_model(
         cls = _classification(dam)
         if cls:
             config_json["classification"] = cls
+        line = _dam_line_layer(folder)
+        if line:
+            config_json["dam"]["dam_line"] = str(line)
         path = folder / "runner_config.json"
         path.write_text(json.dumps(config_json, indent=2) + "\n", encoding="utf-8")
         log(f"One dam, no QGIS window: {cli} run")
         log("The point is the DEM-coordinate pair from the export fields, not longitude and latitude.")
-        code, text = _run([_python_for(cli), cli, "run", str(path)], timeout=None, cancel=cancel)
-        log(text.rstrip())
+        code, text = _run_logged([_python_for(cli), cli, "run", str(path)], log, timeout=None, cancel=cancel)
         log("Runner finished." if code == 0 else "The runner failed.")
         return {"ok": code == 0, "stopped": code != 0, "folder": str(folder), "work": str(root)}
     if cli and not point:
@@ -1012,6 +1265,7 @@ def run_model(
         "STORAGE_ACFT": _finite(dam.get("storageAcFt")),
         "TOP_FT": _finite(datum.get("crestNavdFt")),
         "AREA_AC": _finite(dam.get("surfaceAreaAc")),
+        "DAM_LINES": str(line) if (line := _dam_line_layer(folder)) else None,
     }
     if "OUTPUT_FOLDER" in accepted:
         (root / "runs").mkdir(exist_ok=True)
@@ -1019,6 +1273,13 @@ def run_model(
         log(f"Hand-off package: {package}")
     cmd = [exe, "run", rundam, *_args(exe, rundam, values, log)]
     log(f"This button runs {rundam} for one dam.")
+    if values.get("DAM_LINES"):
+        log("Dam line sent as DAM_LINES (" + Path(values["DAM_LINES"]).name + "). It is longitude and latitude; "
+            "the Runner reprojects it to the DEM so the toe band can be placed "
+            "(5 m out to H×(slope+1), 3:1 when the slope is unknown, 150 m cap, with the side check).")
+    else:
+        log("No drawn dam line was written, so DAM_LINES was not sent. The Runner will look in the dam folder, "
+            "or fall back to the lowest ground within 150 m of the dam point.")
     if builtin:
         log("LISFLOOD_EXE=builtin: the built-in numpy engine (a screening approximation, not LISFLOOD-FP).")
     elif model_settings["LISFLOOD_EXE"]:
@@ -1026,8 +1287,7 @@ def run_model(
     else:
         log("LISFLOOD_EXE empty: the runner looks for an installed LISFLOOD-FP (its provider setting, PATH, the usual "
             "install places) and runs the built-in engine with a warning when there is none.")
-    code, text = _run(cmd, timeout=None, cancel=cancel)
-    log(text.rstrip())
+    code, text = _run_logged(cmd, log, timeout=None, cancel=cancel)
     results = _outputs(text)
     out = {"ok": code == 0, "stopped": code != 0, "folder": str(folder), "work": str(root)}
     if results.get("RUN_FOLDER"):
@@ -1161,7 +1421,22 @@ def read_hazard_report(out_dir: Path) -> dict | None:
                 "receptors": len(h.get("receptors") or []),
             })
     flags = [f for f in res.get("flags") or [] if isinstance(f, dict) and f.get("level") in ("error", "warning")]
+    # What the run found affected among the real receptors (for the printed report's table): receptors with a hit, by
+    # layer (per_receptor keys look like "structure:39", "road:240"), and the wet structures it counted.
+    layer_of = {"structure": "STRUCTURES", "road": "ROADS", "rail": "RAIL", "facility": "FACILITIES",
+                "lifeline": "LIFELINES", "environment": "ENVIRONMENT"}
+    impacted: dict[str, int] = {}
+    per = res.get("per_receptor") if isinstance(res.get("per_receptor"), dict) else {}
+    for key in per:
+        layer = layer_of.get(str(key).split(":", 1)[0])
+        if layer:
+            impacted[layer] = impacted.get(layer, 0) + 1
+    hab = res.get("habitability") if isinstance(res.get("habitability"), dict) else {}
+    tally = hab.get("tally") if isinstance(hab.get("tally"), dict) else {}
+    wet = tally.get("wet_structures")
     return {
+        "impacted": impacted,
+        "wetStructures": wet if isinstance(wet, int) and not isinstance(wet, bool) else None,
         "ranMode": cfg.get("mode"),
         "ranPreset": cfg.get("preset"),
         "ranPresetLabel": cfg.get("preset_label"),
@@ -1169,6 +1444,37 @@ def read_hazard_report(out_dir: Path) -> dict | None:
         "driving": driving,
         "warnings": len(flags),
     }
+
+
+def real_receptor_layers(dam: dict, analysis: dict, depth: str, log, cancel: threading.Event | None = None) -> dict:
+    """The real structures / roads / rail for the depth raster's area (real_receptors.py). Never raises: a layer it
+    cannot get is listed under "missing", and run_classify marks the class incomplete."""
+    bbox = real_receptors.raster_bbox(depth)
+    if bbox is None:
+        point = _lonlat(dam)
+        bbox = real_receptors.dam_bbox({"lon": point[0], "lat": point[1]}, analysis) if point else None
+        if bbox is not None:
+            log("The depth raster's area could not be read from its GeoTIFF tags (a CRS this desk does not know); "
+                "receptors are looked up round the dam point instead.")
+    if bbox is None:
+        why = "no area: the depth raster's CRS is not one the desk reads, and the dam has no point"
+        return {"layers": {}, "sources": {}, "missing": {k: why for k in real_receptors.CORE_LAYERS}}
+    log("Looking up the real receptors (structures, roads, rail) for "
+        f"{bbox[0]:.4f}, {bbox[1]:.4f} to {bbox[2]:.4f}, {bbox[3]:.4f}: the DamIT data folder first, then the public services.")
+    state = _state_code(dam) or (str(dam.get("state") or "").upper()[:2] or None)
+    try:
+        found = REAL_RECEPTORS(bbox, state, find_data_folder(), log, cancel=cancel)
+    except Exception as exc:  # a lookup bug must not stop classify; it shows as NOT CHECKED
+        why = f"the lookup failed: {exc}"
+        return {"layers": {}, "sources": {}, "missing": {k: why for k in real_receptors.CORE_LAYERS}}
+    for key in real_receptors.CORE_LAYERS:
+        if key in found.get("sources", {}):
+            log(f"{key.title()}: {len(found['layers'].get(key) or [])} from {found['sources'][key]}.")
+    return found
+
+
+#: The real-receptor lookup (tests replace it; DAMIT_OFFLINE=1 keeps it to the data folder).
+REAL_RECEPTORS = real_receptors.find_receptors
 
 
 def run_classify(
@@ -1222,7 +1528,11 @@ def run_classify(
         return {**base, "ok": False, "stopped": True, "noDepth": True}
     if from_folder:
         log(f"Depth raster: {depth} (the flood model's Depth (Max) in the dam folder).")
-    written = write_receptor_layers(folder, dam, receptors)
+    real = real_receptor_layers(dam, analysis or {}, depth, log, cancel)
+    if cancel is not None and cancel.is_set():
+        log("Cancelled while looking up the receptors. Nothing was classified.")
+        return {**base, "ok": False, "stopped": True, "cancelled": True}
+    written = write_receptor_layers(folder, dam, receptors, real=real)
     for s in written["skipped"]:
         log(f"Receptor not sent: {s.get('name') or s.get('id') or s.get('kind')} ({s.get('kind')}): {s.get('reason')}.")
     if not written["layers"]:
@@ -1234,6 +1544,15 @@ def run_classify(
     counts = ", ".join(f"{k} {n}" for k, n in written["counts"].items())
     placed = ", ".join(f"{n} {k}" for k, n in written["placement"].items() if n)
     log(f"Receptor layers for {alg} ({written['source']}): {counts}" + (f"; placed: {placed}" if placed else "") + ".")
+    missing = dict(written.get("missing") or {})
+    if missing:
+        log("INCOMPLETE: " + "; ".join(f"{k.lower()} NOT CHECKED ({why})" for k, why in missing.items())
+            + ". The class below can only be a lower bound until those layers are checked.")
+    rail_lookup = _file(dam.get("railTrainsLookup") or os.environ.get("DAMIT_RAIL_TRAINS_LOOKUP"))
+    if written["counts"].get("RAIL") and not rail_lookup:
+        log(f"Rail: {written['counts']['RAIL']} line(s) in the area. The national rail network has no trains per day, so "
+            "M9a can call an impacted line Medium at most. For the High test (10+ freight trains a day), give a "
+            "trains-per-day lookup (the Rail trains lookup field, or DAMIT_RAIL_TRAINS_LOOKUP). DamIT ships no default.")
     if written["placement"].get("desk valley"):
         log("Desk-valley receptors sit where the desk's straight valley puts them from the breach (schematic); map "
             "them (lon/lat) for a placement the depth raster can be trusted at.")
@@ -1264,7 +1583,7 @@ def run_classify(
         "DAM_JSON": str(record),
         "DAM_NAME": dam.get("name") or None,
         # DamIT Hazard 0.1.2: trains per day for rail layers without the field (NARN); no default, user-given only
-        "RAIL_TRAINS_LOOKUP": _file(dam.get("railTrainsLookup") or os.environ.get("DAMIT_RAIL_TRAINS_LOOKUP")),
+        "RAIL_TRAINS_LOOKUP": rail_lookup,
         "OUTPUT": str(out_dir),
     }
     if values["RAIL_TRAINS_LOOKUP"]:
@@ -1275,8 +1594,7 @@ def run_classify(
     cmd = [exe, "run", alg, *_args(exe, alg, values, log)]
     log(f"Classification for {chosen}: {' '.join(cmd[1:3])} judges the downstream receptors with these methods.")
     log("The result is a suggested class; the engineer of record and the regulating agency make the determination.")
-    code, text = _run(cmd, timeout=None, cancel=cancel, env=classify_env())
-    log(text.rstrip())
+    code, text = _run_logged(cmd, log, timeout=None, cancel=cancel, env=classify_env())
     if code == STOPPED_CANCEL:
         return {**base, "ok": False, "stopped": True, "cancelled": True}
     out = {**base, "ok": code == 0, "stopped": code != 0}
@@ -1297,13 +1615,24 @@ def run_classify(
             "mode": choice["mode"],
             "preset": choice["preset"],
             **report,
+            # Which layers were checked and from where. complete is False when structures, roads or rail could not
+            # be checked: the desk then shows the class as a lower bound, not as the answer.
+            "complete": not missing,
+            "notChecked": missing,
+            "layerSources": dict(written.get("sources") or {}),
+            "railTrainsLookup": rail_lookup,
         }
+        if missing:
+            out["incomplete"] = True
         ran = report.get("ranPreset")
         if choice["mode"] == "preset" and report and ran != choice["preset"]:
             log(f"Note: the report says it ran {ran or 'custom mode'}, not {choice['preset']}; check the PRESET list of {alg}.")
             out["classification"]["presetMismatch"] = True
         log(f"Suggested class for {chosen}: {results['CLASS']} (ordinal {results.get('ORDINAL', '?')}). "
             "This is the DamIT classification for the chosen jurisdiction, a suggestion, not an official hazard classification.")
+        if missing:
+            log(f"INCOMPLETE: {results['CLASS']} is at least the class; {', '.join(k.lower() for k in missing)} "
+                "were NOT CHECKED, and any of them can raise it.")
         if results.get("GPKG"):
             log(f"Receptors by class: {results['GPKG']}")
     log("Classification finished." if code == 0 else "The classification failed.")
@@ -1338,27 +1667,37 @@ def _plugin(
     work: str,
     values: dict,
     folder: str = "",
+    cancel: threading.Event | None = None,
 ) -> dict:
-    """One qgis_process run of a published DamIT algorithm. Stops with a message when it is not installed."""
+    """One qgis_process run of a published DamIT algorithm. Stops with a message when it is not installed.
+    Its output is in the log as it runs; Cancel (cancel.set()) and the time limit (plugin_timeout) stop
+    qgis_process and everything it started."""
     cfg = handoff_config(config)
     alg = cfg.alg(role)
     _log_config(log, cfg, (role,))
     exe = find_qgis_process()
     if not exe:
         log(f"qgis_process was not found. {what} was not started.")
-        log("Install QGIS (3.28 or newer), or set QGIS_PROCESS to the qgis_process program.")
+        log("Install the DamIT plugins with the suite installer (install-all.sh), or set QGIS_PROCESS to its qgis-process-damit.sh (.cmd on Windows).")
         return {"ok": False, "stopped": True, "folder": folder, "work": work}
     if not algorithm_available(exe, alg):
         _missing_alg(log, exe, cfg, role, what)
         return {"ok": False, "stopped": True, "missingAlgorithm": alg, "folder": folder, "work": work}
-    log(f"{what}: {alg}")
-    code, text = _run([exe, "run", alg, *_args(exe, alg, values, log)], timeout=None)
-    for line in text.splitlines():
-        log(line)
-    return {"ok": code == 0, "folder": folder, "work": work, "outputs": _outputs(text)}
+    limit = plugin_timeout(role)
+    log(f"{what}: {alg}" + (f" (stops after {limit / 60:g} min; DAMIT_PLUGIN_TIMEOUT_S)" if limit else ""))
+    code, text = _run_logged([exe, "run", alg, *_args(exe, alg, values, log)], log, timeout=limit, cancel=cancel)
+    out = {"ok": code == 0, "folder": folder, "work": work, "outputs": _outputs(text)}
+    if code == STOPPED_CANCEL:
+        log(f"{what} was cancelled. Files it had started may be incomplete.")
+        out.update(stopped=True, cancelled=True)
+    elif code == STOPPED_TIMEOUT:
+        log(f"{what} was stopped at its time limit ({limit:g} s). Set DAMIT_PLUGIN_TIMEOUT_S for a longer one.")
+        out.update(stopped=True, timedOut=True)
+    return out
 
 
-def run_data(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+def run_data(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None,
+             cancel: threading.Event | None = None) -> dict:
     """damit_data:download for the dam's state, into the DamIT data folder (or <work>/data).
 
     STATE is the option whose text names the postal code from the NID id. An id with no code downloads by extent.
@@ -1383,14 +1722,15 @@ def run_data(dam: dict, analysis: dict, work: str | None, log, files=None, confi
     extent = _extent(dam)
     if extent:
         values["EXTENT"] = extent
-    return _plugin("data", "The data download", log, config, str(root), values, str(folder))
+    return _plugin("data", "The data download", log, config, str(root), values, str(folder), cancel=cancel)
 
 
 def cfg_alg(role: str, config: HandoffConfig | None) -> str:
     return handoff_config(config).alg(role)
 
 
-def run_pmp(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+def run_pmp(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None,
+             cancel: threading.Event | None = None) -> dict:
     """damit_pmp:pointpf at the dam point. Atlas 14 only; not a PMP study."""
     dam = dam or {}
     prepared = _prepare(dam, analysis or {}, work, log, files, append_status=False)
@@ -1417,17 +1757,19 @@ def run_pmp(dam: dict, analysis: dict, work: str | None, log, files=None, config
             "OUTPUT_JSON": str(out / f"{stem}_atlas14.json"),
         },
         str(folder),
+        cancel=cancel,
     )
 
 
-def run_finder(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+def run_finder(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None,
+             cancel: threading.Event | None = None) -> dict:
     """damit_find:embankments on the local DEM, limited to the drawn area when there is one."""
     dam = dam or {}
     prepared = _prepare(dam, analysis or {}, work, log, files, append_status=False)
     if prepared is None:
         return {"ok": False, "stopped": True, "folder": "", "work": ""}
     root, folder = prepared
-    dem = _raster(dam.get("demPath")) or _raster(os.environ.get("DAMIT_DEM")) or (
+    dem = _raster(dam.get("demPath")) or _raster(os.environ.get("DAMIT_DEM")) or desk_dem() or (
         str(root / "dem.tif") if (root / "dem.tif").is_file() else None
     )
     if not dem:
@@ -1440,8 +1782,57 @@ def run_finder(dam: dict, analysis: dict, work: str | None, log, files=None, con
     extent = _extent(dam)
     if extent:
         values["EXTENT"] = extent
+    known = write_known_dams(out / f"{stem}_known_dams.geojson", dam, log)
+    if known:
+        values["KNOWN"] = known
     log("Finder looks for fills. A candidate is not a listed dam, and it has no NID ID.")
-    return _plugin("finder", "The fill search", log, config, str(root), values, str(folder))
+    return _plugin("finder", "The fill search", log, config, str(root), values, str(folder), cancel=cancel)
+
+
+def write_known_dams(path: Path, dam: dict, log, load_state=None) -> str | None:
+    """The listed dams Finder checks each candidate against (its KNOWN layer), as EPSG:4326 points: the state's NID
+    main dams from the desk's NID cache (downloaded once per state), and always this dam itself. Without it every
+    fill came back "not listed", even this dam. None when there is not one point to write."""
+    feats: dict[str, dict] = {}
+    state = _state_code(dam)
+    if state:
+        try:
+            from damit_desktop import nid as nid_mod
+
+            if load_state is None:
+                offline = (os.environ.get("DAMIT_OFFLINE") or "").strip().lower() in ("1", "true", "yes")
+                cached = nid_mod.NID_DIR is not None and nid_mod.cache_path(state).is_file()
+                if offline and not cached:
+                    raise RuntimeError("no cached NID list, and DAMIT_OFFLINE is set")
+                load_state = nid_mod.load_state
+            bundle = load_state(state)
+            cols = bundle.get("cols") or []
+            ix = {c: i for i, c in enumerate(cols)}
+            for row in bundle.get("rows") or []:
+                try:
+                    lon, lat, nid_id = row[ix["lon"]], row[ix["lat"]], row[ix["nid"]]
+                except (KeyError, IndexError, TypeError):
+                    continue
+                if _finite(lon) is None or _finite(lat) is None or not nid_id:
+                    continue
+                feats[str(nid_id)] = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                                      "properties": {"nid": str(nid_id), "name": str(row[ix["name"]] or "") if "name" in ix else "",
+                                                     "source": "NID"}}
+            log(f"Known dams for Finder: {len(feats)} {state} NID dams (desk NID cache).")
+        except Exception as exc:  # no cache and no network: Finder still runs, with this dam only
+            log(f"The {state} NID list could not be loaded ({exc}); Finder checks candidates against this dam only.")
+    point = _lonlat(dam)
+    ids = handoff_ids(dam)
+    ident = ids.get("nid_id") or ids.get("dam_id") or "this dam"
+    if point is not None and str(ident) not in feats:
+        feats[str(ident)] = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [point[0], point[1]]},
+                             "properties": {"nid": str(ident), "name": str(dam.get("name") or ""), "source": "desk record"}}
+    if not feats:
+        log("No listed dam to check candidates against (no NID list, no dam point).")
+        return None
+    path.write_text(json.dumps({"type": "FeatureCollection", "name": "known_dams", "features": list(feats.values())}) + "\n",
+                    encoding="utf-8")
+    return str(path)
 
 
 def _python_for(cli: str) -> str:

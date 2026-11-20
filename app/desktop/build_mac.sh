@@ -6,5 +6,5 @@ cd "$(dirname "$0")"
 PY="${PYTHON:-$(command -v python3.12 || command -v python3)}"
 "$PY" -c 'import sys; v=sys.version_info[:2]; sys.exit(0 if (3,10) <= v <= (3,12) else "Need Python 3.10-3.12, found %d.%d" % v)'
 "$PY" -m pip install -r requirements.txt
-"$PY" -m PyInstaller damit_crest.spec
-echo 'Built "dist/DamIT Crest.app" (unsigned: right-click > Open on first launch)'
+"$PY" -m PyInstaller damit_desk.spec
+echo 'Built "dist/DamIT Desk.app" (unsigned: right-click > Open on first launch)'

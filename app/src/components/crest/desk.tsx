@@ -1,11 +1,13 @@
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, Droplets, Plus, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
+
+import damitWordmark from "@/assets/damit-wordmark-light.png";
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
 import { locationProblem } from "@/lib/crest/guided";
 import { DEFAULT_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
 import { choiceKey, choiceText, classifyReceptors, receptorKey, reportLead } from "@/lib/crest/classify-receptors";
-import { crestApiHeaders } from "@/lib/crest/desktop-server";
+import { crestApiHeaders, hasDesktopServer } from "@/lib/crest/desktop-server";
 import { ClassificationPanel } from "@/components/crest/ClassificationPanel";
 import { lookupPads, padPoints, padsToRetry, resetFailedPads } from "@/lib/crest/nd911-pads";
 import { exportDamJson, exportHydrographCsv, generateLisfloodPackage } from "@/lib/crest/export";
@@ -62,6 +64,7 @@ import { saveText } from "@/lib/crest/save";
 import { demTieOffer, missingForNext, needsDemTie } from "@/lib/crest/nid-dams";
 import { onOutlineSaveChange, outlineSaveError } from "@/lib/crest/outline-store";
 import { activeDam, hydrateDesk, useDesk, useSaveStatus } from "@/lib/crest/store";
+import { DeskFiles } from "./DeskFiles";
 import type {
   BreachMethod,
   DamGeometry,
@@ -85,10 +88,18 @@ import { HybridSetup } from "./HybridSetup";
 import { ViewExport } from "./ViewExport";
 import { ClientOnly } from "./ClientOnly";
 import { TerrainSource } from "./TerrainSource";
+import { ServerFilePicker } from "./ServerFilePicker";
+import { getServer, hasDeskServer, pickOnServer, postServer } from "@/lib/crest/server-picker";
+import { isDesktop } from "@/lib/crest/save";
 import { ensureDemSource } from "@/lib/crest/dem-source";
 import type { PointRole } from "./MapDraw";
 import { autoBreachPoint } from "@/lib/crest/breach-point";
 import { CREST_SNAP_M, deriveFromDem, nearRequest } from "@/lib/crest/batch";
+import { assumptions } from "@/lib/crest/settings";
+import { loadSettings, sharedNow } from "@/lib/crest/settings-store";
+import { CREST_VERSION } from "@/lib/crest/version";
+import { BreachAdvanced } from "./BreachAdvanced";
+import { SettingsPanel } from "./SettingsPanel";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -149,12 +160,11 @@ export function Desk() {
   const step = useDesk((s) => s.step);
   const setStep = useDesk((s) => s.setStep);
   const select = useDesk((s) => s.select);
-  const update = useDesk((s) => s.update);
   const add = useDesk((s) => s.add);
   const restore = useDesk((s) => s.restore);
-  const addDam = useDesk((s) => s.addDam);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<"desk" | "batch">("desk");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What "Open in desk" did (selected an existing record or added one), shown once over the desk.
   const [openNote, setOpenNote] = useState<string | null>(null);
   const saveBlocked = useSaveStatus((s) => s.blocked);
@@ -165,14 +175,17 @@ export function Desk() {
     setReady(true);
     // The desktop's saved local DEM (if any) becomes the terrain for every read on the desk.
     void ensureDemSource();
+    // The shared defaults a new record starts from: your defaults file (desktop) or this browser's copy (web).
+    void loadSettings();
   }, []);
 
-  const dam = activeDam({ dams, activeId, step, setStep, select, update, add, addDam, restore });
+  const dam = activeDam({ dams, activeId });
   const result = useMemo(() => analyze(dam), [dam]);
   useResultsSync(dam, result);
 
   return (
     <div className="min-h-screen bg-paper text-ink">
+      <ServerFilePicker />
       {staleTab ? (
         <div className="border-b border-line bg-card px-4 py-2 text-sm text-amber" role="alert" data-testid="stale-tab">
           This desk was changed in another tab, so your edits here are no longer being saved. Reload to pick up the
@@ -181,23 +194,29 @@ export function Desk() {
       ) : saveBlocked ? (
         <div className="border-b border-line bg-card px-4 py-2 text-sm text-amber" role="alert" data-testid="save-blocked">
           This desk is over your browser&rsquo;s storage limit, so your latest edits are no longer being saved.
-          Export your work and reload, or remove a dam&rsquo;s terrain layer to free space.
+          Use &ldquo;Save desk to file&rdquo; (under the dam list) to keep your work, then reload, or remove a
+          dam&rsquo;s terrain layer to free space.
         </div>
       ) : null}
       <header className="border-b border-line bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-sm bg-water text-card">
-              <Droplets className="size-5" aria-hidden="true" />
-            </span>
+            <img
+              src={damitWordmark}
+              alt="DaMiT"
+              height={32}
+              width={117}
+              className="h-8 w-auto shrink-0"
+            />
             <div>
               <p className="text-xs tracking-widest text-muted uppercase">Dam breach desk</p>
-              <h1 className="text-2xl leading-none">DamIT Crest</h1>
+              <h1 className="text-2xl leading-none">Desk</h1>
             </div>
           </div>
           <p className="max-w-xl text-sm text-muted">
-            A standalone stand-in for the QGIS suite. Elevations, breach, and the map update as you edit.
-            It does not run LISFLOOD, ANUGA, or HEC-RAS, and it does not assign an official hazard class.
+            One window for screening, a breach run and classification. Elevations, breach, and the map update as you edit.
+            The flood model (LISFLOOD-FP, then ANUGA or HEC-RAS if chosen) runs through the DamIT plugins from the Report
+            step; the desk&apos;s own screen is not a model run, and nothing here assigns an official hazard class.
           </p>
           <div className="flex gap-2 sm:ml-auto" role="group" aria-label="View">
             {(["desk", "batch"] as const).map((v) => (
@@ -211,9 +230,19 @@ export function Desk() {
                 {v === "desk" ? "One dam" : "Batch"}
               </button>
             ))}
+            <button
+              type="button"
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((o) => !o)}
+              data-testid="settings-toggle"
+              className={"h-11 rounded-sm border px-4 text-sm " + (settingsOpen ? "border-water bg-water text-card" : "border-line bg-card text-ink")}
+            >
+              Settings
+            </button>
           </div>
         </div>
       </header>
+      {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
 
       {view === "batch" ? (
         <main className="mx-auto w-full max-w-6xl min-w-0 px-4 py-4">
@@ -261,6 +290,7 @@ export function Desk() {
             })}
           </ul>
           <div className="hidden px-4 pb-4 lg:block">
+            <DeskFiles onNote={setOpenNote} />
             <button
               type="button"
               onClick={restore}
@@ -322,10 +352,13 @@ export function Desk() {
             </div>
           </div>
 
+          <div className="mt-6 lg:hidden">
+            <DeskFiles onNote={setOpenNote} />
+          </div>
           <button
             type="button"
             onClick={restore}
-            className="mt-6 inline-flex h-11 items-center gap-2 text-sm text-muted lg:hidden"
+            className="inline-flex h-11 items-center gap-2 text-sm text-muted lg:hidden"
           >
             <RotateCcw className="size-4" aria-hidden="true" />
             Restore samples
@@ -337,9 +370,9 @@ export function Desk() {
       <footer className="border-t border-line bg-card">
         <div className="mx-auto max-w-6xl px-4 py-3 text-xs text-muted">
           <details>
-            <summary className="cursor-pointer">About DamIT Crest and its data sources</summary>
+            <summary className="cursor-pointer">About DamIT Desk and its data sources</summary>
             <ul className="mt-2 list-disc space-y-1 pl-5">
-              <li>DamIT Crest is a multi-jurisdiction desk screen for dam breach and hazard studies, adapted from Crest. It does not run LISFLOOD, ANUGA, or HEC-RAS itself and does not assign an official hazard class: classification is consequence-based and the engineer of record and the regulating agency make the determination.</li>
+              <li>DamIT Desk is a multi-jurisdiction desk screen for dam breach and hazard studies, adapted from Crest. Its own screen is not a flood model: LISFLOOD-FP (and ANUGA or HEC-RAS) run through the DamIT plugins from the Report step. It does not assign an official hazard class: classification is consequence-based and the engineer of record and the regulating agency make the determination.</li>
               <li>Basemaps: USGS The National Map, or OpenStreetMap contributors (as credited on the map).</li>
               <li data-testid="plss-attribution">{PLSS_ATTRIBUTION}</li>
               <li data-testid="nd911-attribution">{ND911_ATTRIBUTION}</li>
@@ -602,6 +635,7 @@ function BreachStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <Stat k="Released volume" v={`${num(result.breach.volumeAcFt, 0)} ac-ft`} />
         </div>
       </div>
+      <BreachAdvanced dam={dam} result={result} />
       <div className="rounded-md border border-line bg-card p-4">
         <h3 className="text-lg">Outflow</h3>
         <HydroChart series={result.breach.series} />
@@ -686,7 +720,7 @@ function FloodStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof 
         <h3 className="text-lg">Dam line, points, and area of interest</h3>
         <p className="mt-1 text-sm text-muted">
           Draw the dam line and the area of interest, and place the breach and reservoir points: click a button above the
-          map and then the spot, or let DamIT Crest pick the breach point from the terrain (where the ground at the downstream
+          map and then the spot, or let DamIT Desk pick the breach point from the terrain (where the ground at the downstream
           toe is lowest along the dam line, the old channel crossing; with no dam line drawn, one is laid across the
           downhill slope at the record's point). Markers drawn with the map's own marker tool still count in order
           (first = reservoir, second = breach). They are saved on this dam record. A drawn area limits the schematic flood: the valley runs
@@ -867,7 +901,7 @@ function OutlinePanel({
         <p className="mt-1 text-sm font-medium text-amber" role="status" data-testid="outline-volume-label">
           <span className="rounded-sm border border-amber px-1.5 py-0.5">{vol.label}</span>{" "}
           <span className="font-normal">
-            Under {SMALL_RELEASE_ACFT} ac-ft released: a terrain layer is a poor guide to so little water. Run this dam in the ND Breach Runner and import the run on Results.
+            Under {SMALL_RELEASE_ACFT} ac-ft released: a terrain layer is a poor guide to so little water. Run this dam in the DamIT Runner (Run the flood model, on Report) and import the run on Results.
           </span>
         </p>
       ) : null}
@@ -921,7 +955,7 @@ function OutlinePanel({
             ))}
           </ul>
           <p className="mt-1 text-xs text-muted">
-            A screening call for ordering the Runner worklist, not a hazard classification: DamIT Crest is a screening stand-in, never the layer of record.
+            A screening call for ordering the Runner worklist, not a hazard classification: the desk's own screen is a stand-in, never the layer of record.
           </p>
         </div>
       ) : null}
@@ -1458,9 +1492,21 @@ function ReportStep({ dam, result: deskResult }: { dam: DamRecord; result: Retur
  */
 function HazardLead({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const lead = useMemo(() => reportLead(dam, result), [dam, result]);
-  const tone = lead.kind === "hazard" ? "border-water bg-card" : lead.kind === "stale" ? "border-amber bg-sand" : "border-line bg-sand";
+  const tone = lead.incomplete
+    ? "border-2 border-amber bg-sand"
+    : lead.kind === "hazard"
+      ? "border-water bg-card"
+      : lead.kind === "stale"
+        ? "border-amber bg-sand"
+        : "border-line bg-sand";
   return (
-    <div className={`rounded-md border p-4 ${tone}`} data-testid="hazard-lead" data-kind={lead.kind}>
+    <div
+      className={`rounded-md border p-4 ${tone}`}
+      data-testid="hazard-lead"
+      data-kind={lead.kind}
+      data-incomplete={lead.incomplete ? "true" : undefined}
+      role={lead.incomplete ? "alert" : undefined}
+    >
       <p className="text-xs tracking-widest text-muted uppercase">Downstream consequences, judged by the chosen jurisdiction</p>
       <h3 className="mt-1 text-xl">{lead.title}</h3>
       <ul className="mt-2 space-y-1 text-sm">
@@ -1482,17 +1528,29 @@ const handoff = {
   wse: "",
   nonbreach: "",
   arrival: "",
+  railLookup: "",
   work: "",
   dem: "",
   model: "lisflood",
   source: "data",
   log: "No DamIT plugin has been started.",
+  /** A screening that ended with a partial (time-limited) preliminary result: shown above the log. */
+  warning: "",
   busy: false,
   job: "",
 };
 let handoffTimer = 0;
 
-type JobPath = "/api/screen" | "/api/model" | "/api/folder" | "/api/layers" | "/api/classify" | "/api/data" | "/api/pmp" | "/api/finder";
+type JobPath =
+  | "/api/screen"
+  | "/api/model"
+  | "/api/folder"
+  | "/api/layers"
+  | "/api/classify"
+  | "/api/check"
+  | "/api/data"
+  | "/api/pmp"
+  | "/api/finder";
 
 /** The algorithm ids the desktop server will call (GET /api/handoff): DamIT defaults or the user's overrides. */
 type HandoffInfo = { algorithms: Record<string, string>; sources: Record<string, string>; problems: string[]; cli: string | null };
@@ -1511,7 +1569,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
-    if (handoffInfo) return;
+    if (handoffInfo || !hasDesktopServer()) return;
     let live = true;
     fetch("/api/handoff", { headers: crestApiHeaders() })
       .then((r) => (r.ok ? r.json() : null))
@@ -1561,6 +1619,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       if (handoffTimer) window.clearInterval(handoffTimer);
       handoff.busy = true;
       handoff.log = "Starting…\n";
+      handoff.warning = "";
       bump((n) => n + 1);
       // Classify: the downstream receptors (and drawn area) go to damit:classify, so the chosen preset or custom
       // methods judge them. The keys tie the result to this choice and these receptors.
@@ -1576,7 +1635,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           body: JSON.stringify({
             // Piping when no failure mode was chosen; the server fills piping as well (handoff.resolved_failure_mode).
             dam: handoffDam(dam),
-            analysis: result,
+            // With what this record used of the shared defaults, for the dam.json the hand-off writes.
+            analysis: { ...result, assumptions: assumptions(dam, sharedNow(), CREST_VERSION, result.breach.startPool) },
             work: handoff.work,
             dem: handoff.dem,
             depth: path === "/api/classify" ? handoff.depth : undefined,
@@ -1585,29 +1645,31 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
             wse: path === "/api/classify" ? handoff.wse : undefined,
             nonbreach: path === "/api/classify" ? handoff.nonbreach : undefined,
             arrival: path === "/api/classify" ? handoff.arrival : undefined,
+            railLookup: path === "/api/classify" ? handoff.railLookup : undefined,
             receptors,
             model: handoff.model,
             source: handoff.source,
-            files: path === "/api/layers" ? undefined : files,
+            files: path === "/api/layers" || path === "/api/check" ? undefined : files,
           }),
         });
       } catch {
         // fetch itself rejected: nothing is listening on this origin, so there is no desktop server running.
         handoff.busy = false;
         handoff.log =
-          "This page has no DamIT Crest server, so QGIS was not started. From the damit_crest/desktop folder run: python run.py";
+          "This page has no DamIT Desk server, so QGIS was not started. Start the desk with bin/damit-desk (or bin\\damit-desk.cmd) and open the address it prints.";
         bump((n) => n + 1);
         return;
       }
       try {
-        if (!response.ok) throw new Error(`The DamIT Crest server rejected the job (HTTP ${response.status}).`);
+        if (!response.ok) throw new Error(`The DamIT Desk server rejected the job (HTTP ${response.status}).`);
         const job = (await response.json()) as { id?: string };
-        if (!job.id) throw new Error("The DamIT Crest server did not return a job id.");
+        if (!job.id) throw new Error("The DamIT Desk server did not return a job id.");
         handoff.job = job.id;
         handoffTimer = window.setInterval(async () => {
           try {
             const found = await (await fetch(`/api/job?id=${job.id}`, { headers: crestApiHeaders() })).json();
             handoff.log = String(found.log || "");
+            if (found.done && found.partial && typeof found.warning === "string") handoff.warning = found.warning;
             if (found.done && ran && found.ok && found.classification?.suggestedClass && useDesk.getState().activeId === ran.damId) {
               const c = found.classification as Record<string, unknown>;
               const str = (v: unknown) => (typeof v === "string" && v ? v : null);
@@ -1624,7 +1686,13 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
                   driving: Array.isArray(c.driving) ? (c.driving as NonNullable<HazardResult["driving"]>).slice(0, 8) : [],
                   warnings: typeof c.warnings === "number" ? c.warnings : 0,
                   layers: (c.layers as Record<string, number>) ?? {},
+                  impacted: (c.impacted as Record<string, number>) ?? {},
+                  wetStructures: typeof c.wetStructures === "number" ? c.wetStructures : null,
                   skipped: typeof c.skipped === "number" ? c.skipped : 0,
+                  complete: typeof c.complete === "boolean" ? c.complete : null,
+                  notChecked: (c.notChecked as Record<string, string>) ?? {},
+                  layerSources: (c.layerSources as Record<string, string>) ?? {},
+                  railTrainsLookup: str(c.railTrainsLookup),
                   classifiedAt: new Date().toISOString(),
                   choiceKey: ran.choiceKey,
                   receptorKey: ran.receptorKey,
@@ -1651,7 +1719,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       } catch (e) {
         // A response came back, so a server is there — surface its real error, not the generic "no server" text.
         handoff.busy = false;
-        handoff.log = `The DamIT Crest server returned an error: ${(e as Error).message}`;
+        handoff.log = `The DamIT Desk server returned an error: ${(e as Error).message}`;
         bump((n) => n + 1);
       }
     },
@@ -1677,11 +1745,14 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         Writes the dam folder the DamIT plugins read, including the LISFLOOD package and the flood strip. Get layers
         downloads a DEM and streams for this area (USGS, United States), or uses the DamIT data folder (DAMIT_DATA).
         Screening runs {algs.preflight} and starts {algs.runchain} only if the preflight is READY. Classify hands the
-        folder, the jurisdiction choice, the model run&apos;s depth raster and the downstream receptors (structures, roads,
-        the drawn area) to {algs.classify}, so the chosen preset or custom methods judge the downstream consequences; it
-        is not started without a depth raster or a receptor it can place. The flood model runs{" "}
-        {algs.rundam} for this dam only. A
-        missing algorithm, a missing DEM or depth raster, or a preflight FAIL stops there. Cancel stops QGIS; DAMIT_SCREENING_TIMEOUT_S sets a time limit. The result is a suggested class,
+        folder, the jurisdiction choice, the model run&apos;s depth raster and the downstream receptors to {algs.classify}:
+        the real structures, roads and rail lines for the depth raster&apos;s area (the DamIT data folder, else USACE NSI,
+        FHWA HPMS and the national rail network online) plus the receptors you mapped. A layer it cannot check makes the
+        class INCOMPLETE, shown as a lower bound. The flood model runs {algs.rundam} for this dam only. A missing
+        algorithm, a missing DEM or depth raster, or a preflight FAIL stops there. Check QGIS hand-off tests the link to
+        the plugins first, without running a dam. The log shows the plugin&apos;s output as it runs. Cancel stops QGIS
+        and what it started, for every button; DAMIT_SCREENING_TIMEOUT_S limits screening and DAMIT_PLUGIN_TIMEOUT_S the
+        Download layers, Atlas 14 and Find fills buttons (3 h, 15 min, 2 h by default). The result is a suggested class,
         not an official one.
       </p>
       <p className="mt-1 text-xs text-muted" data-testid="handoff-algorithms">
@@ -1705,7 +1776,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           />
         </label>
         <label className="text-xs text-muted">
-          DEM
+          DEM <ChooseFile what="the DEM" onPick={(p) => ((handoff.dem = p), bump((n) => n + 1))} />
           <input
             className={field}
             value={handoff.dem}
@@ -1717,7 +1788,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           />
         </label>
         <label className="text-xs text-muted">
-          Depth raster (Classify)
+          Depth raster (Classify) <ChooseFile what="the depth raster" onPick={(p) => ((handoff.depth = p), bump((n) => n + 1))} />
           <input
             className={field}
             value={handoff.depth}
@@ -1729,7 +1800,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           />
         </label>
         <label className="text-xs text-muted">
-          Velocity raster (Classify, optional)
+          Velocity raster (Classify, optional) <ChooseFile what="the velocity raster" onPick={(p) => ((handoff.velocity = p), bump((n) => n + 1))} />
           <input
             className={field}
             value={handoff.velocity}
@@ -1777,13 +1848,25 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           />
         </label>
         <label className="text-xs text-muted">
-          Arrival time raster (hours) (Classify, optional)
+          Arrival time raster (hours) (Classify, optional) <ChooseFile what="the arrival raster" onPick={(p) => ((handoff.arrival = p), bump((n) => n + 1))} />
           <input
             className={field}
             value={handoff.arrival}
             placeholder="blank = none"
             onChange={(e) => {
               handoff.arrival = e.target.value;
+              bump((n) => n + 1);
+            }}
+          />
+        </label>
+        <label className="text-xs text-muted">
+          Rail trains-per-day lookup (Classify, optional CSV)
+          <input
+            className={field}
+            value={handoff.railLookup}
+            placeholder="blank = none: an impacted rail line can only reach Medium"
+            onChange={(e) => {
+              handoff.railLookup = e.target.value;
               bump((n) => n + 1);
             }}
           />
@@ -1820,6 +1903,15 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         </label>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="inline-flex h-10 items-center rounded-sm border border-water bg-paper px-3 text-sm text-water disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={handoff.busy}
+          onClick={() => void start("/api/check")}
+          title="Checks that qgis_process is found and that the preflight, chain, flood model and classify algorithms are in its QGIS profile. Runs no dam and writes nothing."
+        >
+          Check QGIS hand-off
+        </button>
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/layers")}>
           Get layers
         </button>
@@ -1861,8 +1953,76 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         structure layers for the dam's state. Atlas 14 is a precipitation-frequency estimate, not a PMP study. Find
         fills looks for embankments on the DEM; a candidate is not a listed dam.
       </p>
-      <pre className="mt-3 max-h-72 overflow-auto rounded-sm bg-paper p-3 text-xs whitespace-pre-wrap">{handoff.log}</pre>
+      <ExportsFolder />
+      {handoff.warning ? (
+        <p className="mt-2 rounded-sm border border-amber bg-amber/10 p-2 text-sm text-ink" role="status" data-testid="screening-partial">
+          {handoff.warning}
+        </p>
+      ) : null}
+      <LiveLog text={handoff.log} busy={handoff.busy} />
     </div>
+  );
+}
+
+/** "Choose…" beside a path field, in a browser page served by the desk (the native window types or pastes paths). */
+function ChooseFile({ what, onPick }: { what: string; onPick: (path: string) => void }) {
+  if (isDesktop() || !hasDeskServer()) return null;
+  return (
+    <button
+      type="button"
+      className="ml-1 rounded-sm border border-line bg-paper px-1.5 text-xs text-ink"
+      onClick={() => void pickOnServer({ mode: "dem", title: `Choose ${what}` }).then((p) => p && onPick(p))}
+    >
+      Choose…
+    </button>
+  );
+}
+
+/** Where Save writes in a browser page (the desk server writes exports; browser_io.py). */
+function ExportsFolder() {
+  const [dir, setDir] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const browser = !isDesktop() && hasDeskServer();
+  useEffect(() => {
+    if (!browser) return;
+    getServer<{ dir: string }>("/api/export_dir")
+      .then((r) => setDir(r.dir))
+      .catch(() => setDir(null));
+  }, [browser]);
+  if (!browser) return null;
+  const change = async () => {
+    const p = await pickOnServer({ mode: "folder", title: "Folder for exports", start: dir });
+    if (!p) return;
+    try {
+      setDir((await postServer<{ dir: string }>("/api/export_dir", { path: p })).dir);
+      setErr(null);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <p className="mt-2 text-xs text-muted" data-testid="exports-folder">
+      Exports (Save buttons) are written to <span className="break-all text-ink">{dir ?? "…"}</span>{" "}
+      <button type="button" className="rounded-sm border border-line bg-paper px-1.5 text-xs text-ink" onClick={() => void change()}>
+        Change…
+      </button>
+      {err ? <span className="ml-2 text-red-700">{err}</span> : null}
+    </p>
+  );
+}
+
+/** The job log, kept scrolled to the newest line while a plugin runs (the server streams its output). */
+function LiveLog({ text, busy }: { text: string; busy: boolean }) {
+  const ref = useRef<HTMLPreElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && busy) el.scrollTop = el.scrollHeight;
+  }, [text, busy]);
+  return (
+    <pre ref={ref} className="mt-3 max-h-72 overflow-auto rounded-sm bg-paper p-3 text-xs whitespace-pre-wrap" data-testid="plugin-log" aria-live="polite">
+      {busy ? "● running — output appears as the plugin prints it\n" : ""}
+      {text}
+    </pre>
   );
 }
 
@@ -2131,14 +2291,14 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
     <div className="rounded-md border border-line bg-card p-4">
       <h3 className="text-lg">Export</h3>
       <p className="mt-1 text-sm text-muted">
-        Hand-off files for the Breach Runner and LISFLOOD-FP. The LISFLOOD package runs 72 h with the point source at the
+        Hand-off files for the DamIT Runner and LISFLOOD-FP. The LISFLOOD package runs 72 h with the point source at the
         breach; you supply the DEM.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={btn} onClick={() => void save(`${root}_hydrograph.csv`, exportHydrographCsv(result.breach.series), "text/csv")}>
           Hydrograph CSV
         </button>
-        <button type="button" className={btn} onClick={() => void save(`${root}_dam.json`, exportDamJson(dam, result), "application/json")}>
+        <button type="button" className={btn} onClick={() => void save(`${root}_dam.json`, exportDamJson(dam, result, sharedNow()), "application/json")}>
           dam.json
         </button>
         {(["par", "bci", "bdy"] as const).map((ext) => (

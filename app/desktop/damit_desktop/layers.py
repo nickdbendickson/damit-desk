@@ -101,6 +101,8 @@ def write_settings(
     if dem_file:
         data["terrain_source"] = 1
         data["local_dem"] = str(Path(dem_file).resolve().parent)
+        # Growing clips must use the same local / pack DEM; the screening default (1) is a fresh 3DEP download.
+        data["larger_clips"] = 2
         # DamIT Screener's key: the terrain raster itself.
         data["terrain"] = str(Path(dem_file).resolve())
     if isinstance(classification, dict) and classification:
@@ -177,7 +179,7 @@ def _save_url(url: str, dest: Path, timeout: float, fetch) -> None:
     if fetch is not None:
         fetch(url, dest)
         return
-    request = urllib.request.Request(url, headers={"User-Agent": "DamIT-Crest-desktop"})
+    request = urllib.request.Request(url, headers={"User-Agent": "DamIT-Desk"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read(80_000_000 + 1)

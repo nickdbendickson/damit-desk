@@ -67,7 +67,7 @@ export function dashMethod(outline: OutlineState, record: ResultsOfRecord | null
 }
 
 export const METHOD_LABEL: Record<DashMethod, string> = {
-  runner: "Layer of record: ND Breach Runner run (LISFLOOD-FP)",
+  runner: "Layer of record: DamIT Runner run (LISFLOOD-FP)",
   model: "Layer of record: imported model run",
   routed: "Fast layer (terrain method): routed flood",
   outline: "Fast layer (terrain method): terrain outline",
@@ -116,7 +116,7 @@ export function dashboardFlags(
     out.push({
       key: "runner-needed",
       sev: "critical",
-      text: `Large flood, no Runner run: ${Math.round(rec.releasedAcFt).toLocaleString("en-US")} ac-ft released, and the fast layer can badly under-predict a flood this size (about 0.10× of the modeled area on DWR-2801). Run it in the ND Breach Runner and import the run on Results.`,
+      text: `Large flood, no Runner run: ${Math.round(rec.releasedAcFt).toLocaleString("en-US")} ac-ft released, and the fast layer can badly under-predict a flood this size (about 0.10× of the modeled area on DWR-2801). Run it in the DamIT Runner and import the run on Results.`,
     });
   if (opts.volume) {
     const sev = flagSeverity({

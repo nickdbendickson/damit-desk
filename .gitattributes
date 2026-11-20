@@ -1,0 +1,11 @@
+# Check out text files with LF on every OS: the tests compare source files and export snapshots byte for byte, and
+# the built bundle is checked against its Subresource Integrity hashes (a CRLF checkout broke both on Windows).
+* text=auto eol=lf
+# Windows launchers keep CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+# The built desk bundle: never touch its bytes.
+app/desktop/damit_desktop/web/** -text
+# A fixture that is CRLF on purpose (the NID loader must read Windows line endings).
+app/desktop/tests/fixtures/nid_ri_fixture.csv -text

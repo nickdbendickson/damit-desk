@@ -49,10 +49,10 @@ LISTS = {
     "rundam": ["HANDOFF", "DAM_ID", "NID_ID", "IS_NEW", "IS_SAMPLE", "X", "Y", "CRS", "HEIGHT_FT", "STORAGE_ACFT",
                "MODE", "PRESET", "SCENARIOS", "METHODS", "TERRAIN", "HYDROGRAPH", "OUTPUT_FOLDER", "DRY_RUN",
                "DAMS_FOLDER", "DEM", "DEM_Z", "TOP_FT", "AREA_AC", "PMF_FT", "METHOD", "TIER", "CELL", "MANNING",
-               "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE"],
+               "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE", "DAM_LINES"],
     "download": ["STATE", "EXTENT", "SOURCES", "FOLDER", "FORCE", "MAX_MB"],
     "pointpf": ["POINT", "OUTPUT_CSV", "OUTPUT_JSON"],
-    "embankments": ["DEM", "OUT", "EXTENT"],
+    "embankments": ["DEM", "OUT", "EXTENT", "KNOWN"],
 }
 ENUMS = {"MODE": ["preset", "custom"],
          "ENGINE": ["From Models (TIER)", "LISFLOOD-FP", "ANUGA (LISFLOOD-FP for the extent, then ANUGA)",
@@ -114,6 +114,48 @@ if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_PACKAGE")
         (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
             "status": "computed_preliminary", "suggested_label": "Significant", "suggested_ordinal": 2,
             "flags": ["preliminary"]}}))
+if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_CHAIN"):
+    # Like DamIT Screener 0.3.5+: FAKE_CHAIN=partial keeps a time-limited flood's maxima (engine2d GAP, "partial:
+    # time limit"), writes the package with its preliminary class, then fails the chain (FAIL_ON_ERROR) saying the
+    # flood "did not run". FAKE_CHAIN=partial-noclass: the same with no preliminary class in the package.
+    # FAKE_CHAIN=fail fails with no package; FAKE_CHAIN=nopkg-timeout writes only steps.json.
+    # FAKE_CHAIN=partial-ok / partial-ok-noclass: DamIT Screener 0.3.7+ (damit #146) marks the engine2d step and the
+    # package gap partial=true / partial_reason=time_limit and finishes the chain OK (exit 0).
+    mode = os.environ["FAKE_CHAIN"]
+    new = mode.startswith("partial-ok")
+    flags = {"partial": True, "partial_reason": "time_limit"} if new else {}
+    if new:
+        mode = "partial" if mode == "partial-ok" else "partial-noclass"
+    settings = json.loads(Path(vals["SETTINGS"]).read_text())
+    Path(os.environ["CALLS"]).open("a").write("SETTINGS " + json.dumps(settings) + "\n")
+    dam_id = (settings.get("dam_ids") or [""])[0]
+    detail = ("screening flood (built-in, partial: time limit): 5190.8 ac, max 12.49 ft, 3 receptor(s) sampled")
+    if mode in ("partial", "partial-noclass", "nopkg-timeout"):
+        dam_dir = Path(vals["WORK"]) / "dams" / dam_id
+        dam_dir.mkdir(parents=True, exist_ok=True)
+        (dam_dir / "steps.json").write_text(json.dumps({"engine2d": {"status": "gap", "detail": detail, "stats": {
+            "flooded_acres": 5190.8, "max_depth_ft": 12.49, "sim_time_hr": 18.0, "run_s": 2880.1,
+            "timed_out": True, "edge_flag": True}, **flags}}))
+    if mode == "partial":
+        folder = Path(vals["WORK"]) / "handoff" / dam_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
+            "status": "computed_preliminary", "suggested_label": "Medium", "suggested_ordinal": 2},
+            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail, **flags}]}))
+    if mode == "partial-noclass":
+        # As on Absaraka 2026-11-20: no receptors screened, so the package has no suggestion, only the flood gap.
+        folder = Path(vals["WORK"]) / "handoff" / dam_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
+            "status": "not_computed", "suggested_label": None, "suggested_ordinal": None},
+            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail, **flags},
+                     {"step": "suggest", "status": "gap", "detail": "no receptor hydraulics yet"}]}))
+    if new:
+        print("!!! " + dam_id + ": PARTIAL SCREENING: the screening flood reached its time limit (" + detail + ")")
+        print("OK:\ttrue")
+        sys.exit(0)
+    print("runchain: 1 dam(s) failed: " + dam_id + ": did not run: " + detail)
+    sys.exit(1)
 if any(a.endswith(":rundam") for a in args) and "OUTPUT_FOLDER" in vals:
     print("RUN_FOLDER:\t" + vals["OUTPUT_FOLDER"] + "/run_1")
     launched = vals.get("DRY_RUN") == "false" and "DAMS_FOLDER" in vals
@@ -139,7 +181,9 @@ if any(a.endswith(":classify") for a in args):
         "config": {"mode": "preset" if preset else "custom", "preset": preset, "preset_label": preset,
                    "labels": {"2": "Significant", "3": "High"}},
         "driving": [{"method": "M2", "class": 2, "reason": "home wet 2.1 ft", "receptors": ["structure:0"]}],
-        "flags": [{"level": "warning", "code": "x", "message": "m", "receptors": []}]}))
+        "flags": [{"level": "warning", "code": "x", "message": "m", "receptors": []}],
+        "per_receptor": {"structure:0": {"rule": 2}, "road:4": {"rule": None, "advisory": 2}},
+        "habitability": {"tally": {"wet_structures": 2}}}))
     print("CLASS:\tSignificant")
     print("ORDINAL:\t2")
     print("REPORT:\t" + str(out / "damit_hazard_report.md"))
@@ -223,6 +267,8 @@ class Base(unittest.TestCase):
                 "FAKE_STYLE": "",
                 "FAKE_PACKAGE": "",
                 "FAKE_CLASSIFY": "",
+                "FAKE_CHAIN": "",
+                "DAMIT_SCREENING_TIMEOUT_S": "",
                 "APPDATA": "",
                 "LISFLOOD_EXE": "",
                 "DAMIT_LISFLOOD_EXE": "",
@@ -231,6 +277,11 @@ class Base(unittest.TestCase):
                 "DAMIT_RUN_DURATION_HR": "",
                 "DAMIT_RUN_DURATION_MAX_HR": "",
                 "DAMIT_RAIL_TRAINS_LOOKUP": "",
+                # No online receptor lookups in the headless tests (real_receptors.py); test_desk_fixes fakes them.
+                "DAMIT_OFFLINE": "1",
+                "DAMIT_PLUGIN_TIMEOUT_S": "",
+                # No suite-installed qgis-process-damit.sh from this machine's ~/dam-suite.
+                "DAMSUITE_PREFIX": str(self.root / "no-dam-suite"),
             },
         )
         self.env.start()
@@ -555,6 +606,7 @@ class PublishedInterfaceTests(Base):
         self.assertEqual(feats[0]["properties"]["dam_id"], "XX00001")
         self.assertEqual(feats[0]["properties"]["receptor_type"], "structure")
         self.assertEqual(feats[0]["properties"]["structure_type"], "home")
+        self.assertEqual(feats[0]["properties"]["source"], SEEDS[0].get("source") or "crest")   # Hazard's 911 test reads it
         self.assertEqual(feats[0]["geometry"]["coordinates"], [-100.0, 46.74])
         # the desk's payload, when sent with the screen job: its structures (points), not its roads
         qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log, receptors=PAYLOAD)
@@ -779,6 +831,9 @@ class ClassificationTests(Base):
         self.assertTrue(c["gpkg"].endswith("damit_hazard_receptors.gpkg"))
         self.assertEqual(c["driving"][0]["method"], "M2")
         self.assertEqual(c["warnings"], 1)
+        # What it found affected among the receptors, for the printed report's table.
+        self.assertEqual(c["impacted"], {"STRUCTURES": 1, "ROADS": 1})
+        self.assertEqual(c["wetStructures"], 2)
         self.assertNotIn("presetMismatch", c)
 
     def test_receptor_files_have_hazard_field_names_and_geometries(self):

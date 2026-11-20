@@ -13,6 +13,14 @@ describe("crest engine", () => {
     }
   });
 
+  it("notes a routed peak past 1.5× the Froehlich (1995) check (Edenville 2020), and not an ordinary one", () => {
+    const eden = { ...blankDam(), id: "Edenville", name: "Edenville", heightFt: 54, lengthFt: 1500, crestFt: 681.5, streambedFt: 627.5, spillwayFt: 675.2, normalPoolFt: 675.2, storageAcFt: 57000, surfaceAreaAc: 2900, statedDatum: "NAVD88" as const, failureMode: "piping" as const, method: "froehlich" as const, startPool: "elevation" as const, startPoolFt: 680.1 };
+    const a = analyze(eden);
+    assert.ok(a.breach.peakCfs > 1.5 * a.breach.empiricalPeakCfs);
+    assert.ok(a.breach.notes.some((n) => /× the Froehlich \(1995\) check/.test(n)));
+    for (const dam of SAMPLE_DAMS) assert.ok(!analyze(dam).breach.notes.some((n) => /× the Froehlich \(1995\) check/.test(n)), dam.id);
+  });
+
   it("DWR-2801 Froehlich 2008 piping: 100 ft average width, 0.94 h formation (Runner)", () => {
     const a = analyze(dwr2801());
     assert.ok(Math.abs(a.breach.widthFt - 100) < 1, `width ${a.breach.widthFt}`);
@@ -73,4 +81,12 @@ test("blankDam leaves spillway and normal pool blank", () => {
   assert.ok(Number.isNaN(d.normalPoolFt));
   const a = analyze(d);
   assert.ok(a);
+});
+
+test("blankDam invents no DEM crest, so no local-datum offset", () => {
+  const d = blankDam();
+  assert.ok(Number.isNaN(d.demCrestFt));
+  const a = analyze(d);
+  assert.equal(a.datum.offsetFt, null);
+  assert.ok(a.datum.warnings.some((w) => /No DEM tie/.test(w)), JSON.stringify(a.datum.warnings));
 });

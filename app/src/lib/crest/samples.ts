@@ -144,7 +144,7 @@ export const SAMPLE_DAMS: DamRecord[] = [
     drainageMi2: 13.7,
     statedDatum: "NAVD88",
     datumNote:
-      "Crest converted from NGVD29 1070.0 ft (DWR Dams file; +1.09 ft VERTCON at the site); do not shift again.",
+      "Crest converted from NGVD29 1070.0 ft (state dam inventory; +1.09 ft VERTCON at the site); do not shift again.",
     demCrestFt: 1071.09,
     classOfRecord: "ND MEDIUM (NID hazard Significant)",
     sampleNote:
@@ -243,7 +243,9 @@ export function blankDam(): DamRecord {
     storageAcFt: 200,
     drainageMi2: 4,
     statedDatum: "Local",
-    demCrestFt: 1550,
+    // No DEM crest until it is read off the terrain or typed: a made-up 1550 tied the local crest with an invented
+    // 1450 ft offset. Blank holds the screen at Review ("No DEM tie") until the crest is tied.
+    demCrestFt: Number.NaN,
     // Piping by default (Nick, 2026-11-05): the Runner's and the ND Dam Safety screening default.
     failureMode: "piping",
     method: "froehlich",

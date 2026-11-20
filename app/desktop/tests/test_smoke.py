@@ -38,7 +38,13 @@ TILE_HOSTS = ("basemap.nationalmap.gov", "basemaps.cartocdn.com", "tile.openstre
 
 
 def sha256_lf(path: Path) -> str:
-    return hashlib.sha256(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")).hexdigest()
+    """SHA-256 of a source file. Text is hashed with CRLF folded to LF; binary assets as raw bytes."""
+    data = path.read_bytes()
+    try:
+        data = data.decode("utf-8").replace("\r\n", "\n").encode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    return hashlib.sha256(data).hexdigest()
 
 
 class BundleTests(unittest.TestCase):
@@ -68,6 +74,20 @@ class BundleTests(unittest.TestCase):
             self.skipTest("repo sources not present (frozen copy)")
         stale = [rel for rel, digest in sources.items() if not (REPO / rel).is_file() or sha256_lf(REPO / rel) != digest]
         self.assertEqual(stale, [], "desktop/damit_desktop/web is older than src/: run `npm run build:desktop` and commit it")
+
+    def test_integrity_hashes_match_assets(self):
+        import base64
+
+        index = (WEB / "index.html").read_text(encoding="utf-8")
+        pattern = r'<(?:script|link)\b[^>]*?(?:src|href)="\./(assets/[^"]+\.(?:js|css))"[^>]*>'
+        self.assertTrue(re.findall(pattern, index), "index.html names no script or stylesheet")
+        for tag in re.finditer(pattern, index):
+            found = re.search(r'integrity="sha384-([^"]+)"', tag.group(0))
+            self.assertTrue(found, f"{tag.group(1)} has no integrity attribute")
+            digest = base64.b64encode(hashlib.sha384((WEB / tag.group(1)).read_bytes()).digest()).decode()
+            self.assertEqual(found.group(1), digest, f"{tag.group(1)} does not match its integrity hash (line endings converted?)")
+        headers = json.loads((WEB / "security-headers.json").read_text(encoding="utf-8"))
+        self.assertIn("script-src 'self';", headers["Content-Security-Policy"])
 
     def test_offline_assets(self):
         index = (WEB / "index.html").read_text(encoding="utf-8")
@@ -227,14 +247,13 @@ class ServedEngineTests(unittest.TestCase):
 
     def test_serves_the_bundle(self):
         body, ctype = self.get("/index.html")
-        # the server adds the per-launch API token (damit_desktop.__main__.API_TOKEN) to the page it serves
+        # the per-launch API token is NOT written into the page (security audit 2026-11-18); the desk gets it from
+        # the URL fragment, so the served page is the bundle's index.html byte for byte
         from damit_desktop.__main__ import API_TOKEN
 
-        meta = f'<meta name="damit-token" content="{API_TOKEN}">'.encode()
-        self.assertIn(meta, body)
-        served = body.replace(meta, b"", 1).replace(b"\r\n", b"\n")
+        self.assertNotIn(API_TOKEN.encode(), body)
         on_disk = (WEB / "index.html").read_bytes().replace(b"\r\n", b"\n")
-        self.assertEqual(served, on_disk)
+        self.assertEqual(body.replace(b"\r\n", b"\n"), on_disk)
         self.assertIn("text/html", ctype)
         for ref in ASSET_RE.findall(body.decode("utf-8")):
             data, ctype = self.get("/" + ref)

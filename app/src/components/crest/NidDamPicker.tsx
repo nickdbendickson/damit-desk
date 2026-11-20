@@ -29,6 +29,8 @@ import {
 import { EXAMPLE_STATE, isNidState, loadNidState, NID_STATES, rememberedState, rememberState, stateName } from "@/lib/crest/nid-state";
 import { deskBundles, staleBundleBanner } from "@/lib/crest/data-provenance";
 import { blankDam } from "@/lib/crest/samples";
+import { applyDefaults } from "@/lib/crest/settings";
+import { sharedNow } from "@/lib/crest/settings-store";
 import { useDesk } from "@/lib/crest/store";
 import type { DamRecord } from "@/lib/crest/types";
 
@@ -163,7 +165,7 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
     <div className="rounded-md border border-line bg-paper p-3">
       <p className="text-sm font-medium">Fill from the NID (National Inventory of Dams)</p>
       {error ? <p className="mt-1 text-sm text-amber">{error}</p> : null}
-      <div className="mt-2 grid gap-3 sm:grid-cols-[180px_200px_1fr]">
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="text-muted">State</span>
           <select
@@ -204,7 +206,8 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
             ))}
           </select>
         </label>
-        <div className="relative text-sm">
+        {/* The dam search gets its own full-width row: squeezed into a third column its list was ~75 px wide. */}
+        <div className="relative text-sm sm:col-span-2">
           <label htmlFor={`${listId}-input`} className="text-muted">
             Dam (name, other name or NID ID)
           </label>
@@ -234,7 +237,7 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
               id={`${listId}-list`}
               role="listbox"
               aria-label="NID dams"
-              className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-sm border border-line bg-card shadow"
+              className="absolute z-20 mt-1 max-h-72 w-full min-w-[18rem] overflow-y-auto rounded-sm border border-line bg-card shadow"
             >
               {shown.map((d, i) => (
                 <li
@@ -282,7 +285,7 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
               className="h-10 rounded-sm border border-line bg-paper px-3"
               onClick={() => {
                 const patch = newRecordPatch(picked, data, dam);
-                const base = blankDam();
+                const base = applyDefaults(blankDam(), sharedNow().values);
                 addDam({ ...base, ...patch, id: `nid-${picked.nid.toLowerCase()}-${base.id.slice(5)}` });
                 setPicked(null);
               }}
@@ -410,7 +413,7 @@ export function NidRecordPanel({ dam }: { dam: DamRecord }) {
             </p>
           ) : null}
           <p className="mt-1 text-xs text-muted">
-            Values you read off a DEM and type here; DamIT Crest does not sample the DEM, and the DEM crest check is left as is.
+            Values you read off a DEM and type here; DamIT Desk does not sample the DEM, and the DEM crest check is left as is.
             Or type them in the Crest, Streambed and datum fields below.
           </p>
         </div>
@@ -479,9 +482,9 @@ export function AboutData() {
   const { data } = useNidData(open);
   return (
     <details className="mt-8 text-xs text-muted" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="cursor-pointer">About DamIT Crest and its data sources</summary>
+      <summary className="cursor-pointer">About DamIT Desk and its data sources</summary>
       <p className="mt-2">
-        DamIT Crest is a desk screen for dam-breach studies. It does not assign an official hazard class. Its dam inventory
+        DamIT Desk is a desk screen for dam-breach studies. It does not assign an official hazard class. Its dam inventory
         is the USACE National Inventory of Dams, loaded one state at a time (North Dakota ships as an offline example;
         other states are downloaded from the NID by the desktop app). No state dam-safety or other inventory is used.
       </p>

@@ -5,7 +5,7 @@
  */
 import { csvCell } from "./csv.ts";
 import { num } from "./format.ts";
-import type { Analysis, SeriesPoint } from "./types.ts";
+import type { Analysis, HazardResult, SeriesPoint } from "./types.ts";
 import { datumFlags, floodFlags } from "./warnings.ts";
 
 /** On every result surface and every printed sheet (brief rule 6). User-tested wording: keep it as written. */
@@ -13,7 +13,7 @@ export const PAPER_DISCLAIMER = "Screening estimate — not an official hazard c
 
 /** The notice box (verbatim from the Style 3 template). */
 export const PAPER_NOTICE =
-  "This is a screening-level estimate produced by DamIT Crest. It is not an official hazard classification by any state or federal agency. " +
+  "This is a screening-level estimate produced by DamIT Desk. It is not an official hazard classification by any state or federal agency. " +
   "Decisions affecting life safety must use the full hydraulic study (Runner / LISFLOOD-FP) results.";
 
 /** Printed receptor rows are capped; the CSV always has every one. */
@@ -61,6 +61,52 @@ export function paperRows(
   const all = affected(result);
   const rows = all.slice(0, cap).map(row);
   return { rows, shown: rows.length, total: all.length };
+}
+
+/** One row of the paper sheet's metric table: metric, value, notes. */
+export type PaperMetric = { metric: string; value: string; note: string };
+
+/**
+ * The "Structures affected" row (and roads / rail rows) of the paper sheet. When damit:classify's result is current
+ * for this dam, the counts are the real receptors it judged (the structures, roads and rail it was sent, and how
+ * many it found wet or impacted). Otherwise they are the desk's own receptors, said as such: never "mapped".
+ */
+export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: HazardResult | null): PaperMetric[] {
+  const sent = hazard?.layers ?? {};
+  if (hazard && Object.keys(sent).length) {
+    const sources = hazard.layerSources ?? {};
+    const out: PaperMetric[] = [];
+    const n = (v: number) => v.toLocaleString("en-US");
+    const nStructures = sent.STRUCTURES ?? 0;
+    const wet = hazard.wetStructures ?? hazard.impacted?.STRUCTURES;
+    if (nStructures) {
+      out.push({
+        metric: "Structures affected",
+        value: wet == null ? `${n(nStructures)} checked` : `${n(wet)} of ${n(nStructures)} wet`,
+        note: `damit:classify, real structures${sources.STRUCTURES ? ` from ${sources.STRUCTURES}` : ""}`,
+      });
+    }
+    for (const [layer, label] of [["ROADS", "Road segments impacted"], ["RAIL", "Rail segments impacted"]] as const) {
+      const total = sent[layer] ?? 0;
+      if (!total) continue;
+      const hit = hazard.impacted?.[layer];
+      out.push({
+        metric: label,
+        value: hit == null ? `${n(total)} checked` : `${n(hit)} of ${n(total)}`,
+        note: `damit:classify${sources[layer] ? `, ${sources[layer]}` : ""}`,
+      });
+    }
+    if (out.length) return out;
+  }
+  const desk = result.flood.receptors;
+  const wetDesk = desk.filter((r) => r.flooded).length;
+  return [
+    {
+      metric: "Structures affected",
+      value: `${wetDesk} of ${desk.length} desk receptors`,
+      note: "the desk's own receptor list, not the real structures: run Classify for those",
+    },
+  ];
 }
 
 /** Every receptor (dry ones too), as the CSV export from the paper toolbar. */

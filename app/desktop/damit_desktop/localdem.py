@@ -2,7 +2,7 @@
 
 The desk asks for terrain the way it asks 3DEP (outline.ts fetchDem): a lon/lat box, a width and height in cells,
 float32 metres, row-major from the north-west corner, NODATA -9999. This module answers that request from the DEM file
-chosen in the app (saved in damit-crest-settings.json as "dem_path") by running gdalwarp on a window of it, so only the
+chosen in the app (saved in damit-desk-settings.json as "dem_path") by running gdalwarp on a window of it, so only the
 cells asked for are read from the mosaic. The path always comes from the settings file, never from the request.
 
 gdalwarp is looked for on PATH, then inside QGIS on macOS / Windows (QGIS ships it).

@@ -13,9 +13,11 @@ import {
   DEM_SERVICE,
   type DemGrid,
   demRequest,
+  demTiles,
   demUrl,
   fetchDem,
   lookupArea,
+  openEdgeOf,
   OUTLINE_LABEL,
   OUTLINE_OFFLINE,
   findToe,
@@ -24,6 +26,7 @@ import {
   extentOf,
   outlineState,
   parseBsq,
+  pasteTile,
   pitsExcludedNote,
   TRACE_VERSION,
   traceStartNote,
@@ -98,10 +101,13 @@ describe("3DEP request", () => {
     for (const [k, v] of Object.entries({ format: "bsq", pixelType: "F32", bboxSR: "4326", imageSR: "4326", noData: "-9999", f: "image", size: "1090,996", adjustAspectRatio: "false" }))
       assert.equal(u.searchParams.get(k), v, k);
   });
-  it("caps very long reaches at 3000 cells a side (coarser cells)", () => {
+  it("keeps a long reach within the cell budget (coarser cells), or shortens it to keep the cell size", () => {
     const r = demRequest(INP, 10, 300);
-    assert.ok(Math.max(r.width, r.height) <= 300);
-    assert.ok(r.cellM > 30);
+    assert.ok(r.width * r.height <= 300 * 300 * 1.05, `${r.width}x${r.height}`);
+    assert.ok(r.cellM > 10);
+    const s = demRequest(INP, 10, 300, { shorten: true });
+    assert.ok(Math.abs(s.cellM - 10) < 1e-6 || s.cellM <= r.cellM);
+    assert.ok(s.width * s.height <= 300 * 300 * 1.05);
   });
   it("corridor: three half-widths, at least 300 m, at most 2 km", () => {
     assert.deepEqual([corridorHalfM(20), corridorHalfM(200), corridorHalfM(900)], [300, 600, 2000]);
@@ -148,6 +154,46 @@ describe("reading and fetching the raster (fetch is faked)", () => {
     };
     await assert.rejects(fetchDem(req, missing, [0, 0]), /answered 404/);
     assert.equal(calls, 1, "a 4xx is not retried");
+  });
+});
+
+describe("tiled terrain reads", () => {
+  it("demTiles covers the box exactly, edge to edge, on its own lattice", () => {
+    const req = { bbox: [-100, 46, -99.9, 46.05] as [number, number, number, number], width: 4500, height: 2100, cellM: 2 };
+    const tiles = demTiles(req, 2000);
+    assert.equal(tiles.length, 3 * 2);
+    let cells = 0;
+    const dlon = (req.bbox[2] - req.bbox[0]) / req.width;
+    for (const t of tiles) {
+      cells += t.req.width * t.req.height;
+      assert.ok(t.req.width <= 2000 && t.req.height <= 2000);
+      assert.ok(Math.abs(t.req.bbox[0] - (req.bbox[0] + t.i0 * dlon)) < 1e-7);
+    }
+    assert.equal(cells, req.width * req.height);
+    assert.deepEqual(demTiles({ ...req, width: 1500, height: 900 }, 2000).map((t) => [t.i0, t.j0]), [[0, 0]]);
+  });
+  it("pasteTile puts a tile's rows at its offset", () => {
+    const z = new Float32Array(4 * 3);
+    pasteTile(z, 4, Float32Array.from([1, 2, 3, 4]), 2, 2, 2, 1);
+    assert.deepEqual([...z], [0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 3, 4]);
+  });
+  it("a box larger than one tile is read tile by tile and pasted back into one grid", async () => {
+    const req = { bbox: [-100, 46, -99.9, 46.05] as [number, number, number, number], width: 2500, height: 30, cellM: 5 };
+    const urls: string[] = [];
+    const g = await fetchDem(req, async (url: string) => {
+      urls.push(url);
+      const q = new URL(url).searchParams;
+      const [w, h] = (q.get("size") ?? "0,0").split(",").map(Number);
+      const west = Number((q.get("bbox") ?? "").split(",")[0]);
+      // Each cell holds its own column number, read from where the tile sits.
+      const i0 = Math.round((west - req.bbox[0]) / ((req.bbox[2] - req.bbox[0]) / req.width));
+      const z = new Float32Array(w * h);
+      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) z[j * w + i] = i0 + i;
+      return { ok: true, status: 200, arrayBuffer: async () => z.buffer };
+    });
+    assert.equal(urls.length, 2);
+    assert.equal(g.z.length, req.width * req.height);
+    for (const i of [0, 1999, 2000, 2499]) assert.equal(g.z[7 * req.width + i], i);
   });
 });
 
@@ -435,5 +481,31 @@ describe("flood extent line (option 3 of the 2026-11-05 outline mock-up)", () =>
     const ext = gj.features.filter((f: { properties: { kind?: string } }) => f.properties.kind === "flood_extent");
     assert.equal(ext.length, 1);
     assert.equal(gj.features.length, OUTLINE.features.length + 1);
+  });
+});
+
+describe("openEdgeOf", () => {
+  const ll = (p: [number, number]): [number, number] => [p[0], p[1]];
+  it("draws the wet cells' edges on the DEM border, joined into runs", () => {
+    // 4 × 3, the middle row wet across: its west and east ends touch the border.
+    const wet = (k: number) => k >= 4 && k < 8;
+    const f = openEdgeOf(4, 3, wet, undefined, undefined, ll, 10, "x", 0);
+    assert.ok(f);
+    assert.deepEqual(f.geometry.coordinates, [
+      [[0, -1], [0, -2]],
+      [[4, -1], [4, -2]],
+    ]);
+    assert.equal(f.properties.edge_km, 0.02);
+  });
+  it("adds the edge of held ground facing ground the spread never reached; nothing when it stops inside", () => {
+    const ground = Uint8Array.from([0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]);
+    const held = Uint8Array.from([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    const wet = (k: number) => k === 5 || k === 6;
+    const f = openEdgeOf(4, 3, wet, ground, held, ll, 10, "x", 1234);
+    assert.ok(f);
+    // Cell 5 (i 1, j 1) is held: its north, south and west sides face cells off the ground; cell 6 is not held.
+    assert.equal(f.geometry.coordinates.length, 3);
+    assert.equal(f.properties.held_ac_ft, 1234);
+    assert.equal(openEdgeOf(4, 3, wet, ground, new Uint8Array(12), ll, 10, "x", 0), null);
   });
 });

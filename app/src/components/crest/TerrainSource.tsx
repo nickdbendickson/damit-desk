@@ -54,7 +54,7 @@ export function TerrainSource({ compact = false }: { compact?: boolean }) {
       </p>
       {s.kind === "unavailable" ? (
         <p className="mt-1 text-xs text-muted">
-          A local DEM (e.g. the statewide 1 m VRT) can be chosen in the DamIT Crest desktop app; a web page cannot open a file on your drive by path. For a
+          A local DEM (e.g. the statewide 1 m VRT) can be chosen when the desk runs from bin/damit-desk; a page opened on its own cannot open a file on your drive by path. For a
           batch from the command line: <code>npm run batch:dams -- --dem /path/to/ND_1m_EPSG26914.vrt</code>.
         </p>
       ) : (

@@ -70,7 +70,71 @@ export type SpreadOptions = {
    * flood passes 2× the dam's height. A pool the terrain contains is never cut by it. See spreadVolume step 4.
    */
   maxLevelM?: number;
+  /**
+   * Spread each stretch's slice along the channel over this window (m, centred) before pouring, keeping each run's
+   * total; 0 pours each slice where the routing left it. Default SLICE_SMOOTH_M. See smoothSlices.
+   */
+  sliceSmoothM?: number;
 };
+
+/**
+ * Window (m) the slices are smoothed over along the channel before the pour (Nick, 2026-11-18: still patchy below
+ * Sanford on Edenville). The routed stage on cut sections zig-zags from one section to the next (a narrows, then a
+ * section topping its bank: 604, 622, 621, 610, 618, 606 ft within 2 km), so the slices did too, and each stretch's
+ * pool stood high or low on its own wedge of ground: beads of deep water with dry gaps between. 300 m spans a few
+ * sections and keeps the envelope following the routing down the valley; 1 km cost DWR-4031 (CSI 0.40 → 0.28).
+ */
+export const SLICE_SMOOTH_M = 300;
+
+/**
+ * Smooth slice volumes along the channel: each slice's volume per metre becomes the length-weighted mean of its
+ * neighbours' within ±windowM/2, then each run is rescaled to its own total, so no water is made or lost. A run is a
+ * stretch of consecutive slices not in a lake (`inPool`); lake stretches are left as they are (a lake is poured at its
+ * own level). `x` are the section stations (n + 1 of them for n slices).
+ */
+export function smoothSlices(v: ArrayLike<number>, x: ArrayLike<number>, windowM: number, inPool: (j: number) => boolean = () => false): Float64Array {
+  const n = v.length;
+  const out = Float64Array.from(v);
+  if (!(windowM > 0) || n < 2) return out;
+  const half = windowM / 2;
+  let a = 0;
+  while (a < n) {
+    if (inPool(a)) {
+      a++;
+      continue;
+    }
+    let b = a;
+    while (b + 1 < n && !inPool(b + 1)) b++;
+    const len = (j: number) => Math.max(1e-6, x[j + 1] - x[j]);
+    const mid = (j: number) => 0.5 * (x[j] + x[j + 1]);
+    let total = 0;
+    let lo = a;
+    let hi = a - 1;
+    let sumV = 0;
+    let sumL = 0;
+    const sm = new Float64Array(b - a + 1);
+    for (let j = a; j <= b; j++) {
+      total += Math.max(0, v[j]);
+      while (hi + 1 <= b && mid(hi + 1) <= mid(j) + half) {
+        hi++;
+        sumV += Math.max(0, v[hi]);
+        sumL += len(hi);
+      }
+      while (lo < j && mid(lo) < mid(j) - half) {
+        sumV -= Math.max(0, v[lo]);
+        sumL -= len(lo);
+        lo++;
+      }
+      sm[j - a] = sumL > 0 ? (sumV / sumL) * len(j) : Math.max(0, v[j]);
+    }
+    let smTotal = 0;
+    for (const q of sm) smTotal += q;
+    const f = smTotal > 0 ? total / smTotal : 0;
+    for (let j = a; j <= b; j++) out[j] = sm[j - a] * f;
+    a = b + 1;
+  }
+  return out;
+}
 
 /** Default for SpreadOptions.basinMinDepthM. */
 export const BASIN_MIN_DEPTH_M = 1.0;
@@ -137,6 +201,11 @@ export type SpreadResult = {
    * dam). settlePools lets the water move only over this ground.
    */
   ground: Uint8Array;
+  /**
+   * 1 on the ground of every stretch held at the cap (cappedStretches): where its pool met the edge of its ground with
+   * water still to pour. The layer marks the wet edge of that ground as where the flood goes on beyond the terrain.
+   */
+  held: Uint8Array;
   /**
    * How far down the channel the water got (m along the centreline, the downstream end of the last stretch with a wet
    * channel cell; 0 when none). The reach loop (reach.ts) reads it against the traced channel's end.
@@ -236,6 +305,19 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
     return e * u0[0] + n * u0[1] < 0;
   };
 
+  // Lakes routed as level pools (routing.ts): every stretch of a lake is poured as one, at the lake's own level, so
+  // the lake stands as one flat surface instead of a slice per stretch at levels of its own (Sanford Lake on
+  // Edenville stood anywhere from 632 to 692 ft against the routed 639 ft). A lake's stretches take its first one's.
+  const canon = new Int32Array(Math.max(1, nS));
+  for (let j = 0; j < nS; j++) canon[j] = j > 0 && sections[j].pool != null && sections[j - 1].pool === sections[j].pool ? canon[j - 1] : j;
+  const lakeLevel = (j: number) => (sections[j].pool != null && Number.isFinite(sections[j].wseM) ? sections[j].wseM : null);
+  const slices = smoothSlices(
+    sections.slice(0, Math.max(0, nS - 1)).map((q) => q.storeMaxM3),
+    sections.map((q) => q.x),
+    opts.sliceSmoothM ?? SLICE_SMOOTH_M,
+    (j) => sections[j].pool != null,
+  );
+
   // 1. Channel cells, each with its stretch.
   const label = new Int32Array(N).fill(-1);
   const bed = new Float64Array(N).fill(NaN);
@@ -250,7 +332,8 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
       const f = s / steps;
       const k = cellAt(a.e + f * (b.e - a.e), a.n + f * (b.n - a.n));
       if (k < 0 || !valid(k) || dist[k] >= 0) continue;
-      const j = stretchOf(a.x + f * (b.x - a.x));
+      const j0 = stretchOf(a.x + f * (b.x - a.x));
+      const j = j0 < 0 ? j0 : canon[j0];
       dist[k] = 0;
       label[k] = j;
       bed[k] = g.z[k];
@@ -511,6 +594,7 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
   let basinsFilled = 0;
   let stoppedIn: SpreadResult["stoppedIn"] = null;
   let poured = 0;
+  const heldStretch = new Uint8Array(Math.max(1, nS));
   const sqrtOf = (s: number) => Math.sqrt(Math.max(s, 1e-6));
   // Lay a level pool holding `vol` (m³) over a basin's cells, lowest ground first (still water: velocity 0). The
   // basin's cells were sorted lowest first when the basin was found (step 3c).
@@ -570,9 +654,19 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
     }
     if (stop) break;
     // The slice shrinks with the water already left behind in depressions upstream (the wave carries less).
-    const v = sections[j].storeMaxM3 * (v0 > 0 ? travelling / v0 : 1);
+    const lake = lakeLevel(j);
+    let v = slices[j] * (v0 > 0 ? travelling / v0 : 1);
     const a = counts[j];
     const b = counts[j + 1];
+    if (lake != null) {
+      // The lake's stretches together, as one slice: whatever stands between the lake's peak level and the ground.
+      let lv = 0;
+      for (let r = a; r < b; r++) {
+        const k = order[r];
+        if (spill[k] + bed[k] <= lake) lv += Math.max(0, lake - g.z[k]);
+      }
+      v = lv * cellM2;
+    }
     if (!(v > 0) || b <= a) continue;
     stretches++;
     slicesM3 += v;
@@ -607,7 +701,10 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
     let budget = target;
     let exhaustedHere = false;
     let cappedHere = false;
-    {
+    if (lake != null) {
+      for (let r = 0; r < cells.length; r++) if (spill[cells[r]] + bed[cells[r]] <= lake) levelOf[r] = lake - bed[cells[r]];
+      budget = 0;
+    } else {
       let cnt = 0;
       let sumG = 0;
       let r = 0;
@@ -681,12 +778,15 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
     pouredM3 += Math.max(0, target - budget) * cellM2;
     if (exhaustedHere) exhausted++;
     if (cappedHere) {
+      heldStretch[j] = 1;
       capped++;
       unpouredM3 += Math.max(0, budget) * cellM2;
     }
     // Velocity: Manning on each wet cell, then one factor so the stretch passes its routed peak (Σ v·d·w = Qpeak,
     // with each cell's width across the flow its area over the stretch length).
-    const dx = Math.max(cellM, sections[j + 1].x - sections[j].x);
+    let jEnd = j;
+    while (jEnd + 2 < nS && canon[jEnd + 1] === j) jEnd++;
+    const dx = Math.max(cellM, sections[jEnd + 1].x - sections[j].x);
     const sS = sqrtOf(sections[j].slopeStage);
     let qMan = 0;
     for (let r = 0; r < cells.length; r++) {
@@ -748,6 +848,8 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
   const rel = opts.releasedM3;
   const ground = new Uint8Array(N);
   for (let k = 0; k < N; k++) if (label[k] >= 0 && valid(k)) ground[k] = 1;
+  const held = new Uint8Array(N);
+  for (let k = 0; k < N; k++) if (ground[k] && heldStretch[label[k]]) held[k] = 1;
   return {
     width: W,
     height: H,
@@ -771,6 +873,7 @@ function* spreadVolumeSteps(g: DemGrid, line: Centerline, sections: RoutedSectio
     stretches,
     reachedEdge,
     ground,
+    held,
     wetEndM,
   };
 }

@@ -1,10 +1,13 @@
-# damit_crest — DamIT Crest desktop app
+# DamIT Desk app (formerly DamIT Crest)
 
-DamIT Crest is the DamIT desktop desk: a pywebview window around a local web desk for dam breach screening —
+**0.1.2 (2026-11-18).** The official DaMiT wordmark (`docs/img/damit-wordmark-light.png`) is shown in the desk header and the Dashboard brand, is the page favicon, and is the desktop window / packaged-app icon (`webview.start(icon=…)`, PyInstaller `icon=`).
+
+DamIT Desk is the DamIT desktop desk: a pywebview window around a local web desk for dam breach screening —
 breach hydrograph, schematic and terrain flood views, receptor ranking, results import, a printable report and
 datum-aware exports — plus the hand-off of a dam to the DamIT QGIS plugins from the **Report** step.
 
-It is adapted from **Crest** ([nickdbendickson/crest](https://github.com/nickdbendickson/crest), `main` at `633d352`),
+It is adapted from **Crest** ([nickdbendickson/crest](https://github.com/nickdbendickson/crest), `main` at `633d352`; Crest now lives in
+[nickdbendickson/DWR_Plugins](https://github.com/nickdbendickson/DWR_Plugins) under `dwr_crest/`),
 the North Dakota DamSafety desk. The desk engine (`src/lib/crest/engine.ts`) and its tests are carried over unchanged;
 what changed is the posture and the hand-off:
 
@@ -35,6 +38,17 @@ network for ND; no national bundle is committed. No state dam-safety inventory (
 unknown-structure layer and no state suite pack (`NDSUITE_DATA`, `~/.ndsuite`) is read or shipped. Receptors (ND 911
 address points for ND dams, or the user's own), DEMs (3DEP or a local DEM) and NHD streams are separate inputs.
 
+**A batch of any size can be left running in the desk.** Rows are written to browser storage (IndexedDB) as they
+finish, and again when the window is hidden or closed. The state and the selection being run are saved too, so after
+**Stop**, a closed window or a crash the Batch screen reopens on the same state and selection with a line saying how
+many are left, and **Resume** carries on from there; closing mid-run asks first. If the terrain service stops
+answering (six dams in a row fail to reach it), the batch **pauses** instead of failing everything left, and tries
+again by itself after 1, 2, 5, 10, 15 and 30 minutes or as soon as the connection is back; the dams that failed that
+way are retried, never kept as results. *Stop retrying* ends the waits, and so does choosing another state. Only the
+300 most recent finished records are kept in memory for **Open in desk**; any other finished row is rebuilt from the
+NID and the terrain when opened (a few seconds), including after a reload. Above 300 dams the screen still shows the
+command line, which runs without a window and can read a local DEM.
+
 The built-in samples are the NID dam ND00199 (Swan Buffalo Detention 12) and two fictional desk examples
 (*Local-datum sample* `SAMPLE-4031`, *Prairie holding pond* `DESK-014`). Those two ids are **not** NID IDs: the hand-off
 sends them as samples (`is_sample`, no `nid_id`), never as NID inventory records. A new dam (*+ New dam*) starts with an
@@ -60,7 +74,7 @@ damit_crest/
     components/crest/ClassificationPanel.tsx
   scripts/                  tests, build-nid-dams.mjs (NID state extract), batch-dams.mjs, sync-jurisdictions.mjs
   desktop/                  the pywebview app (adapted from Crest's crest-desktop/)
-    run.py, requirements.txt, INSTALL.txt, damit_crest.spec, build_mac.sh
+    run.py, requirements.txt, INSTALL.txt, damit_desk.spec, build_mac.sh
     damit_desktop/          __main__ (window + local API), nid (NID by state), algorithms (hand-off ids), qgis_run, handoff, layers, localdem
     damit_desktop/web/      the built desk (committed, so `python run.py` needs no Node)
     tests/                  headless tests; fake qgis_process, nothing real is started
@@ -77,13 +91,93 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Windows uses WebView2 (built into Windows 11), macOS WebKit, Linux `pywebview[qt]`. If no window backend starts, the
-desk opens in the system browser. Optional packages: `pyinstaller damit_crest.spec` (Windows / Linux) or
-`sh build_mac.sh` (macOS, Python 3.10–3.12) give `DamIT Crest.exe` / `DamIT Crest.app`.
+Windows uses WebView2 (built into Windows 11), macOS WebKit, Linux `pywebview[qt]` if you install it; `bin/damit-desk`
+on Linux skips pywebview and opens the system browser. If no window backend starts, the desk opens in the system
+browser and prints its address. Optional packages: `pyinstaller damit_desk.spec` (Windows / Linux) or
+`sh build_mac.sh` (macOS, Python 3.10–3.12) give `DamIT Desk.exe` / `DamIT Desk.app`.
 
 The local server listens on 127.0.0.1:47241 (Crest uses 47231, so both can run). Every `/api/` call needs the
-per-launch token the server puts in the page (`X-DamIT-Token`), and a job may only write under `~/DamITDams`,
-`DAMIT_WORK` or `DAMIT_WORK_ROOTS`.
+per-launch token (`X-DamIT-Token`), and a job may only write under `~/DamITDams`, `DAMIT_WORK` or `DAMIT_WORK_ROOTS`.
+The server never puts the token in the page and no endpoint returns it: the window opens at
+`index.html#damit-token=<token>` (a URL fragment is never sent over HTTP), and the page keeps it in `sessionStorage`.
+
+**The printed address and the browser.** At start the desk prints `DamIT Desk: http://127.0.0.1:47241/index.html`
+(a random port when 47241 is busy). That address has no token: opened by hand in a browser it shows the desk, but every
+call to the local server (layers, the dam folder, screening, model runs, classify, the hand-off and VERTCON
+lookups, the local DEM) is
+refused (HTTP 403). Use the window. When no window backend starts (no pywebview, as on the suite installer's `ndqgis`
+env), the desk opens the system browser itself with a one-time launch link (`/launch?code=…`) that the server swaps,
+once and within 2 minutes, for the token, so the token never appears on the browser's command line; if no browser
+starts, that link is printed in the terminal. A reload of that tab keeps working. A used or expired link, or the plain
+address in a new tab, does not: stop the desk (Ctrl+C) and start it again. A browser that says the link was already
+used when you had not opened it means another program used it first; restarting also makes a new token.
+
+## Settings: starting pool, roughness and the shared defaults
+
+DamIT Desk's presets are the pool at the top of dam, a piping failure, Froehlich (2008) and Manning's n of 0.035 in
+the channel and 0.06 on the floodplain. They can be changed in two places.
+
+**On one record (Breach step, "Advanced: starting pool and roughness").**
+
+- *Starting pool*: top of dam (the default), the record's normal pool, or an elevation you enter (in the same datum
+  as the crest; it is tied to NAVD88 the same way). Below the top of dam the head on the breach is lower and the
+  breach equations use the storage at that pool, so the peak and the released volume are smaller. A pool that cannot
+  be used (no normal pool on the record, above the top of dam, not above the breach bottom) falls back to the top of
+  dam and says why. Inflow cases (PMF, flow over the spillway with or without a breach) are DamIT Runner's.
+- *Manning's n*, channel and floodplain (0.01 to 0.3). Used by the routed flood on the terrain: travel time, depth and
+  spread. Changing either asks for the terrain layer to be built again; the LISFLOOD export's `fpfric` follows the
+  floodplain value.
+
+These belong to the record: they are saved with it and written to its `dam.json`.
+
+**For every new record (header, Settings).** Settings holds the suite's *shared defaults*, the same `defaults.json`
+DamIT Core ships and DamIT Runner reads (`damit_core/lib/shared_defaults.py`): the sunny-day starting pool, the
+failure mode, the breach equation and Manning's n. A new record, a record made from the NID picker and every batch
+row starts from them. Records you already have are not changed; the Breach step lists where a record differs from
+the shared defaults and has a button to put it back on them.
+
+| Where | Your values live in | How to change them |
+| --- | --- | --- |
+| Desktop app | `~/DamIT/defaults.json`, found the way DamIT Core finds it outside QGIS: the `defaults_file` key of the DamIT settings file (`DAMIT_SETTINGS`, else `~/.config/damit/settings.json`), else `DAMIT_DEFAULTS` | Settings > Save writes the file. Editing it by hand works too; DamIT Desk reads it when it opens. |
+| `DamIT.html` in a browser | that browser | Settings > Save. *Open settings file* reads a `defaults.json`; *Save settings file* writes one to hand to the plugins. |
+| Batch command line | a file you name | `npm run batch:dams -- --defaults ~/DamIT/defaults.json ...` |
+
+A `defaults_file` chosen inside QGIS is kept in the QGIS profile, which the desktop app cannot read; set
+`DAMIT_DEFAULTS` to the same path if you keep the file somewhere other than `~/DamIT`.
+
+Your file holds only the keys you changed, so a key you never touched follows the suite's value when the suite is
+updated. Unknown keys and out-of-range values are left out and named, never guessed. DamIT Desk has three of the
+suite's breach equations (Froehlich 2008, MacDonald & Langridge-Monopolis, a TR-60 width); if the shared defaults ask
+for another, new records start on Froehlich (2008) and Settings says so. `pmf_breach_volume` is kept in the file for
+the Runner and not used here. A test compares the desk's copy of the suite values, choices and ranges with
+`damit_core/data/defaults.json` and DamIT Core's schema, so the two cannot drift apart.
+
+Every `dam.json` DamIT Desk writes (Report step, and the dam folder) carries an `assumptions` entry in the form
+`shared_defaults.assumptions()` writes: what the record used, in the shared file's own names, the shared values at the
+time, and `differs`, the keys where the two are not the same. `starting_pool_ft` and `starting_pool_rule` give the pool
+the breach really started from. An `assumptions` entry another tool already wrote in the dam folder's `dam.json` is
+kept; DamIT Desk's own is then on its screened status entry.
+
+## Saving and moving your work
+
+The desk's dams live in the desktop app's own storage (or the browser `DamIT.html` is open in), not in a file you can
+see. Under the dam list:
+
+- **Save desk to file** writes every dam on the desk to one file, `damit-desk-<date>.json`: inputs, receptors,
+  drawn lines and areas, saved 911 / PLSS lookups, the terrain layer, the jurisdiction choice and the last classify
+  result. This is the backup, and the way to move a desk to another computer or between `DamIT.html` and the desktop
+  app.
+- **Open desk file or dam.json** reads that file back. *Add to this desk* never changes a dam already on the desk: a
+  dam that is already there and identical is left alone, and one with the same id but different content is added
+  beside it as "(from file)". *Replace this desk* makes the desk exactly the file's dams.
+- A **dam.json** opens too. One from the Report step carries the whole record (`crest_record`, without the terrain
+  layer) and comes back as it was. The dam folder's `dam.json` (`damit/dam_record`, written by the hand-off) holds the
+  engineering inputs only: it opens as a new record with those inputs and a note that receptors, drawn geometry and
+  layers were not in the file.
+
+A file is read as data only: each record is rebuilt field by field, and a value of the wrong type is dropped with a
+note (`src/lib/crest/desk-file.ts`). The file format is the one Crest writes (`crest-desk`), so a desk saved from
+either opens in the other; fields the other does not have are left out.
 
 ## Report step: DamIT plugins in QGIS
 
@@ -104,15 +198,46 @@ Needs QGIS 3.28–4.x with the DamIT plugins installed. The buttons do nothing i
   runner CLI when Point X and Point Y (DEM CRS) are filled. It never starts a batch algorithm (none is published; the
   name `damit_run:batch` is reserved). The DEM comes from `dem.tif` in the work folder, the DEM field, the data folder
   DEM, or `DAMIT_DEM`.
-- **Classify** — hands the preset / custom choice, the model run's depth raster (typed path) and a flat dam record
-  to `damit:classify`.
+- **Classify** — hands the preset / custom choice, the model run's depth raster (typed or chosen path), a flat dam
+  record and the receptor layers to `damit:classify`. Receptors are the real structures, roads and rail lines for the
+  depth raster's area (`desktop/damit_desktop/real_receptors.py`: the DamIT data folder's `<STATE>/{nsi,hpms,fra_rail}`
+  GeoJSON, else USACE NSI, FHWA HPMS and FRA/BTS rail online) plus the receptors mapped on the desk; the desk's
+  schematic valley receptors are dropped for any layer found for real. A layer that could not be checked makes the
+  class INCOMPLETE (shown as "at least …"). An optional trains-per-day CSV (`DAMIT_RAIL_TRAINS_LOOKUP` or the Report
+  field) goes to `RAIL_TRAINS_LOOKUP`. `DAMIT_OFFLINE=1` skips the online lookups.
 
 Every call sends only the parameters the installed algorithm's `qgis_process help` lists (docs/HANDOFF.md).
 
 Before every run the app checks `qgis_process help <id>`; an algorithm that is not installed stops the job with the
 variable to set. The log is on the Report step. Environment: `QGIS_PROCESS` (path to `qgis_process`), `DAMIT_ALG_*`,
 `DAMIT_CLI`, `DAMIT_HANDOFF_CONFIG`, `DAMIT_PYTHON`, `DAMIT_DATA`, `DAMIT_DEM`, `DAMIT_WORK`, `DAMIT_WORK_ROOTS`,
-`DAMIT_SCREENING_TIMEOUT_S`.
+`DAMIT_SCREENING_TIMEOUT_S`, `DAMIT_PLUGIN_TIMEOUT_S` (Download layers / Atlas 14 / Find fills; default 3 h / 15 min /
+2 h), `DAMIT_RAIL_TRAINS_LOOKUP`, `DAMIT_OFFLINE`, `DAMSUITE_PREFIX` (where the suite installer put
+`qgis-process-damit.sh`).
+
+In a browser page (Linux) the desk server also lists folders for the in-page file chooser (`/api/fs/list`), keeps the
+chosen DEM (`/api/dem/*`) and writes exports (`/api/save`, into `/api/export_dir`); see `desktop/damit_desktop/browser_io.py`.
+
+## Security
+
+The desk runs under a Content-Security-Policy built in one place, `src/lib/crest/csp.ts` (the same policy as Crest):
+
+- **Scripts** run only from the app itself. The desktop app's local server sends the policy with every response
+  from `web/security-headers.json`; `DamIT.html` carries it in a `<meta>` tag with the SHA-256 of its one inline
+  script. No `unsafe-inline` or `unsafe-eval` for scripts. The per-launch token is a `<meta>` tag, not a script.
+- **Network** from the page is limited to USGS basemap tiles and OpenStreetMap, USGS 3DEP, USGS 3DHP lake flowlines
+  (`hydro.nationalmap.gov`, from damit #120; off in the offline / local-DEM paths), the ND GIS Hub 911 points
+  and the BLM PLSS service (plus a tile server set with `VITE_CREST_TILE_URL` at build time). The NID state download
+  is made by the Python server, not the page. A new service has to be added to `csp.ts`; `csp.test.ts` fails when
+  the source names a host the policy does not.
+- **Subresource Integrity**: the bundle's `index.html` carries a `sha384` hash for its script, preloads and
+  stylesheet, so the window refuses a bundle file that does not match. The repo's `.gitattributes` stops git
+  converting line endings in the bundle, which would break the hashes on Windows.
+- Also sent: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` / `frame-ancestors 'none'`, `Referrer-Policy`,
+  `Cross-Origin-Opener-Policy`, `Permissions-Policy`.
+
+If a desktop webview ever needs something the policy blocks, start the app with `DAMIT_NO_CSP=1` to drop the policy
+(the other headers stay) and report what was blocked.
 
 ## Develop
 
@@ -132,5 +257,5 @@ from the hazard catalog (`--check` to verify). `npm run data:nid` refreshes the 
 batch screen from the command line (`--nid-state XX --nid-file <extract>` for a state other than ND). Tests use
 fixtures and never download the NID.
 
-Every export carries the build (`crest_version`, `<package version>+<git sha>`, labelled "DamIT Crest") and the engine
+Every export carries the build (`crest_version`, `<package version>+<git sha>`, labelled "DamIT Desk") and the engine
 method version (`engine_version`); the field names are Crest's so existing readers keep working.

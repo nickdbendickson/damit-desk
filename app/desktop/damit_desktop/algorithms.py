@@ -1,6 +1,6 @@
 """Which DamIT algorithms and CLI the desktop app hands off to, and how to point it at others.
 
-DamIT Crest does not run a breach model, a screening chain or the hazard classification itself. From the Report step
+DamIT Desk does not run a breach model, a screening chain or the hazard classification itself. From the Report step
 it writes the dam folder and calls the DamIT QGIS plugins through ``qgis_process`` (or a DamIT runner CLI for one
 dam). The defaults below are the ids the DamIT plugins publish: ``damit:classify`` (damit_hazard),
 ``damit_screen:preflight`` / ``damit_screen:runchain`` (damit_screener 0.2.0: the 2D screening flood) and
@@ -102,7 +102,7 @@ def check_alg_id(role: str, value) -> str:
     alg_id = value.strip()
     if is_legacy(alg_id):
         raise HandoffConfigError(
-            f"{role}: {alg_id} is a North Dakota suite id. DamIT Crest hands off to the DamIT plugins only; "
+            f"{role}: {alg_id} is a North Dakota suite id. DamIT Desk hands off to the DamIT plugins only; "
             f"use the DamIT id (default {DEFAULT_ALGORITHMS[role]})."
         )
     if role != "batch" and alg_id.split(":", 1)[1].lower() == "batch":
@@ -154,7 +154,7 @@ def load_config(settings_dir: Path | None = None) -> HandoffConfig:
         algorithms[role], sources[role] = chosen, source
     cli = (os.environ.get(CLI_ENV) or "").strip() or (str(data.get("cli") or "").strip() or None)
     if cli and "ndbreach" in Path(cli).name.lower():
-        problems.append(f"{cli} is the North Dakota runner CLI; DamIT Crest does not call it")
+        problems.append(f"{cli} is the North Dakota runner CLI; DamIT Desk does not call it")
         cli = None
     names = data.get("cliNames")
     cli_names = tuple(str(n) for n in names if isinstance(n, str) and n.endswith(".py")) if isinstance(names, list) else ()
