@@ -50,6 +50,9 @@ LISTS = {
                "MODE", "PRESET", "SCENARIOS", "METHODS", "TERRAIN", "HYDROGRAPH", "OUTPUT_FOLDER", "DRY_RUN",
                "DAMS_FOLDER", "DEM", "DEM_Z", "TOP_FT", "AREA_AC", "PMF_FT", "METHOD", "TIER", "CELL", "MANNING",
                "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE"],
+    "download": ["STATE", "EXTENT", "SOURCES", "FOLDER", "FORCE", "MAX_MB"],
+    "pointpf": ["POINT", "OUTPUT_CSV", "OUTPUT_JSON"],
+    "embankments": ["DEM", "OUT", "EXTENT"],
 }
 ENUMS = {"MODE": ["preset", "custom"],
          "ENGINE": ["From Models (TIER)", "LISFLOOD-FP", "ANUGA (LISFLOOD-FP for the extent, then ANUGA)",
@@ -63,7 +66,8 @@ ENUMS = {"MODE": ["preset", "custom"],
                     "NRCS TR-60 peak breach discharge, triangular hydrograph"],
          "TIER": ["LISFLOOD-FP only", "LISFLOOD-FP for the extent, then ANUGA (final results from ANUGA)",
                   "LISFLOOD-FP then HEC-RAS 2D (final results from HEC-RAS; needs HEC-RAS 6.6, see help)"],
-         "PRESET@classify": ["Custom (methods ticked below)", "FEMA P-333 baseline", "Nebraska (unverified)", "North Dakota"]}
+         "PRESET@classify": ["Custom (methods ticked below)", "FEMA P-333 baseline", "Nebraska (unverified)", "North Dakota"],
+         "STATE@download": ["(none - use the extent)", "ND - North Dakota", "MN - Minnesota"]}
 if args[:1] == ["help"]:
     crash = [x for x in os.environ.get("QGIS_CRASH", "").split(",") if x]
     if args[1] in crash:
@@ -267,6 +271,9 @@ class ConfigTests(Base):
                 "runchain": "damit_screen:runchain",
                 "rundam": "damit_run:rundam",
                 "batch": "damit_run:batch",
+                "data": "damit_data:download",
+                "pmp": "damit_pmp:pointpf",
+                "finder": "damit_find:embankments",
             },
         )
         self.assertTrue(all(src == "default" for src in cfg.sources.values()))
@@ -924,6 +931,49 @@ class DataFolderTests(Base):
     def test_default_work_folder_is_damitdams(self):
         with mock.patch.dict(os.environ, {"DAMIT_WORK": ""}):
             self.assertEqual(qr.work_dir(None), (self.home / "DamITDams").resolve())
+
+
+class ToolTests(Base):
+    def test_data_pmp_and_finder_call_the_damit_ids(self):
+        os.environ["QGIS_MODE"] = "pass"
+        dam = {**DAM, "nid": "ND00199"}
+        data = qr.run_data(dam, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(data["ok"], self.lines)
+        text = self.calls_text()
+        self.assertIn("run damit_data:download", text)
+        self.assertIn("--STATE=1", text)  # ND00199 -> ND, index 1 in the fake list
+        self.assertNotIn("nddam", text)
+
+        self.calls.write_text("", encoding="utf-8")
+        pmp = qr.run_pmp(dam, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(pmp["ok"], self.lines)
+        text = self.calls_text()
+        self.assertIn("run damit_pmp:pointpf", text)
+        self.assertIn("--POINT=-100.0,46.75 [EPSG:4326]", text)
+        self.assertIn("_atlas14.csv", text)
+
+        self.calls.write_text("", encoding="utf-8")
+        os.environ["DAMIT_DEM"] = str(self.root / "dem.tif")
+        (self.root / "dem.tif").write_bytes(b"not a dem")
+        found = qr.run_finder(dam, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(found["ok"], self.lines)
+        text = self.calls_text()
+        self.assertIn("run damit_find:embankments", text)
+        self.assertIn("--DEM=", text)
+        self.assertIn("_embankments.gpkg", text)
+
+    def test_a_missing_tool_is_not_started(self):
+        os.environ["QGIS_MISSING"] = "damit_pmp:pointpf"
+        result = qr.run_pmp(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["missingAlgorithm"], "damit_pmp:pointpf")
+        self.assertTrue(any("not started" in line for line in self.lines))
+
+    def test_pmp_without_a_point_stops(self):
+        result = qr.run_pmp({"nid": "ND00199"}, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("No dam point" in line for line in self.lines))
+        self.assertNotIn("pointpf", self.calls_text())
 
 
 if __name__ == "__main__":

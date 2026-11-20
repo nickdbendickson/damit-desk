@@ -1,0 +1,65 @@
+#!/bin/sh
+# Put DamIT Desk on this computer: a Mac app, a Linux menu entry, or tell Windows to use the PowerShell script.
+# Run from anywhere. It does not install QGIS.
+set -e
+HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$HERE/.." && pwd)
+ICON="$ROOT/share/damit-desk.svg"
+NAME="DamIT Desk"
+
+case "$(uname -s)" in
+  Darwin)
+    DEST="${HOME}/Applications/${NAME}.app"
+    mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
+    cp "$ICON" "$DEST/Contents/Resources/damit-desk.svg"
+    cat > "$DEST/Contents/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>${NAME}</string>
+  <key>CFBundleDisplayName</key><string>${NAME}</string>
+  <key>CFBundleIdentifier</key><string>org.damit.desk</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleExecutable</key><string>DamIT Desk</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+</dict>
+</plist>
+EOF
+    cat > "$DEST/Contents/MacOS/DamIT Desk" << EOF
+#!/bin/sh
+exec "$ROOT/bin/damit-desk"
+EOF
+    chmod +x "$DEST/Contents/MacOS/DamIT Desk"
+    echo "Installed ${DEST}"
+    echo "Open it from Applications, or: open \"${DEST}\""
+    ;;
+  Linux)
+    DEST="${HOME}/.local/share/applications"
+    ICONS="${HOME}/.local/share/icons"
+    mkdir -p "$DEST" "$ICONS"
+    cp "$ICON" "$ICONS/damit-desk.svg"
+    cat > "$DEST/damit-desk.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=${NAME}
+Comment=Dam breach screening, model handoff, and classification. QGIS stays in the background.
+Exec=${ROOT}/bin/damit-desk
+Icon=damit-desk
+Terminal=false
+Categories=Science;Engineering;
+StartupNotify=true
+EOF
+    chmod +x "$DEST/damit-desk.desktop"
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database "$DEST" >/dev/null 2>&1 || true
+    fi
+    echo "Installed ${DEST}/damit-desk.desktop"
+    echo "It is in the application menu. Or run: ${ROOT}/bin/damit-desk"
+    ;;
+  *)
+    echo "On Windows, from this folder run: powershell -File install-launcher.ps1"
+    exit 1
+    ;;
+esac

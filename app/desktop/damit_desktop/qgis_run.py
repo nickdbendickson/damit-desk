@@ -1310,6 +1310,140 @@ def run_classify(
     return out
 
 
+def _state_code(dam: dict) -> str | None:
+    """Postal code from an NID id (ND00199 -> ND). None when the id does not start with one."""
+    nid = str(dam.get("nid") or dam.get("nidId") or "")
+    found = re.match(r"^([A-Z]{2})\d", nid)
+    return found.group(1) if found else None
+
+
+def _extent(dam: dict) -> str | None:
+    """The drawn area as a qgis_process extent, or None."""
+    geom = ((dam.get("geometry") or {}).get("aoi") or {}).get("geometry") or {}
+    rings = geom.get("coordinates") if geom.get("type") == "Polygon" else None
+    if not rings or not rings[0]:
+        return None
+    xs = [p[0] for p in rings[0] if isinstance(p, (list, tuple)) and len(p) >= 2]
+    ys = [p[1] for p in rings[0] if isinstance(p, (list, tuple)) and len(p) >= 2]
+    if not xs or not ys:
+        return None
+    return f"{min(xs)},{max(xs)},{min(ys)},{max(ys)} [EPSG:4326]"
+
+
+def _plugin(
+    role: str,
+    what: str,
+    log,
+    config: HandoffConfig | None,
+    work: str,
+    values: dict,
+    folder: str = "",
+) -> dict:
+    """One qgis_process run of a published DamIT algorithm. Stops with a message when it is not installed."""
+    cfg = handoff_config(config)
+    alg = cfg.alg(role)
+    _log_config(log, cfg, (role,))
+    exe = find_qgis_process()
+    if not exe:
+        log(f"qgis_process was not found. {what} was not started.")
+        log("Install QGIS (3.28 or newer), or set QGIS_PROCESS to the qgis_process program.")
+        return {"ok": False, "stopped": True, "folder": folder, "work": work}
+    if not algorithm_available(exe, alg):
+        _missing_alg(log, exe, cfg, role, what)
+        return {"ok": False, "stopped": True, "missingAlgorithm": alg, "folder": folder, "work": work}
+    log(f"{what}: {alg}")
+    code, text = _run([exe, "run", alg, *_args(exe, alg, values, log)], timeout=None)
+    for line in text.splitlines():
+        log(line)
+    return {"ok": code == 0, "folder": folder, "work": work, "outputs": _outputs(text)}
+
+
+def run_data(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+    """damit_data:download for the dam's state, into the DamIT data folder (or <work>/data).
+
+    STATE is the option whose text names the postal code from the NID id. An id with no code downloads by extent.
+    """
+    dam = dam or {}
+    prepared = _prepare(dam, analysis or {}, work, log, files, append_status=False)
+    if prepared is None:
+        return {"ok": False, "stopped": True, "folder": "", "work": ""}
+    root, folder = prepared
+    data = find_data_folder() or str(root / "data")
+    Path(data).mkdir(parents=True, exist_ok=True)
+    values: dict = {"FOLDER": data}
+    state = _state_code(dam)
+    if state:
+        index = enum_match(find_qgis_process() or "", cfg_alg("data", config), "STATE",
+                           lambda text: text.strip().upper().startswith(state))
+        if index is not None:
+            values["STATE"] = index
+            log(f"Data download for {state}.")
+        else:
+            log(f"{state} was not in the STATE list; downloading by extent.")
+    extent = _extent(dam)
+    if extent:
+        values["EXTENT"] = extent
+    return _plugin("data", "The data download", log, config, str(root), values, str(folder))
+
+
+def cfg_alg(role: str, config: HandoffConfig | None) -> str:
+    return handoff_config(config).alg(role)
+
+
+def run_pmp(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+    """damit_pmp:pointpf at the dam point. Atlas 14 only; not a PMP study."""
+    dam = dam or {}
+    prepared = _prepare(dam, analysis or {}, work, log, files, append_status=False)
+    if prepared is None:
+        return {"ok": False, "stopped": True, "folder": "", "work": ""}
+    root, folder = prepared
+    point = _lonlat(dam)
+    if point is None:
+        log("No dam point. Atlas 14 was not started.")
+        return {"ok": False, "stopped": True, "folder": str(folder), "work": str(root)}
+    out = root / "pmp"
+    out.mkdir(exist_ok=True)
+    stem = safe_name(handoff_ids(dam)["dam_id"])
+    log("Atlas 14 at the dam point. This is a precipitation-frequency estimate, not a PMP study.")
+    return _plugin(
+        "pmp",
+        "The Atlas 14 point estimate",
+        log,
+        config,
+        str(root),
+        {
+            "POINT": f"{point[0]},{point[1]} [EPSG:4326]",
+            "OUTPUT_CSV": str(out / f"{stem}_atlas14.csv"),
+            "OUTPUT_JSON": str(out / f"{stem}_atlas14.json"),
+        },
+        str(folder),
+    )
+
+
+def run_finder(dam: dict, analysis: dict, work: str | None, log, files=None, config: HandoffConfig | None = None) -> dict:
+    """damit_find:embankments on the local DEM, limited to the drawn area when there is one."""
+    dam = dam or {}
+    prepared = _prepare(dam, analysis or {}, work, log, files, append_status=False)
+    if prepared is None:
+        return {"ok": False, "stopped": True, "folder": "", "work": ""}
+    root, folder = prepared
+    dem = _raster(dam.get("demPath")) or _raster(os.environ.get("DAMIT_DEM")) or (
+        str(root / "dem.tif") if (root / "dem.tif").is_file() else None
+    )
+    if not dem:
+        log("No DEM. Finder was not started. Choose a DEM, or set DAMIT_DEM.")
+        return {"ok": False, "stopped": True, "folder": str(folder), "work": str(root)}
+    out = root / "finder"
+    out.mkdir(exist_ok=True)
+    stem = safe_name(handoff_ids(dam)["dam_id"])
+    values = {"DEM": dem, "OUT": str(out / f"{stem}_embankments.gpkg")}
+    extent = _extent(dam)
+    if extent:
+        values["EXTENT"] = extent
+    log("Finder looks for fills. A candidate is not a listed dam, and it has no NID ID.")
+    return _plugin("finder", "The fill search", log, config, str(root), values, str(folder))
+
+
 def _python_for(cli: str) -> str:
     chosen = os.environ.get("DAMIT_PYTHON")
     if chosen and Path(chosen).is_file():

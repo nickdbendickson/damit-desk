@@ -33,9 +33,12 @@ from damit_desktop.qgis_run import (
     handoff_config,
     resolve_work,
     run_classify,
+    run_data,
+    run_finder,
     run_folder,
     run_layers,
     run_model,
+    run_pmp,
     run_screening,
 )
 
@@ -117,6 +120,12 @@ def start_job(
                 result = run_model(dam or {}, analysis or {}, work, log, model, files, source, cancel=cancel)
             elif kind == "classify":
                 result = run_classify(dam or {}, analysis or {}, work, log, files, cancel=cancel, receptors=receptors)
+            elif kind == "data":
+                result = run_data(dam or {}, analysis or {}, work, log, files)
+            elif kind == "pmp":
+                result = run_pmp(dam or {}, analysis or {}, work, log, files)
+            elif kind == "finder":
+                result = run_finder(dam or {}, analysis or {}, work, log, files)
             else:
                 result = run_screening(dam or {}, analysis or {}, work, log, files, timeout=timeout, cancel=cancel,
                                        receptors=receptors)
@@ -286,6 +295,9 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/folder": "folder",
             "/api/layers": "layers",
             "/api/classify": "classify",
+            "/api/data": "data",
+            "/api/pmp": "pmp",
+            "/api/finder": "finder",
         }
         kind = kinds.get(parsed.path)
         if not self._api_allowed():

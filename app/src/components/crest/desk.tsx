@@ -1496,7 +1496,7 @@ const handoff = {
 };
 let handoffTimer = 0;
 
-type JobPath = "/api/screen" | "/api/model" | "/api/folder" | "/api/layers" | "/api/classify";
+type JobPath = "/api/screen" | "/api/model" | "/api/folder" | "/api/layers" | "/api/classify" | "/api/data" | "/api/pmp" | "/api/finder";
 
 /** The algorithm ids the desktop server will call (GET /api/handoff): DamIT defaults or the user's overrides. */
 type HandoffInfo = { algorithms: Record<string, string>; sources: Record<string, string>; problems: string[]; cli: string | null };
@@ -1839,6 +1839,15 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/classify")}>
           Classify ({algs.classify})
         </button>
+        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
+          Download layers ({algs.data})
+        </button>
+        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/pmp")}>
+          Atlas 14 point ({algs.pmp})
+        </button>
+        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/finder")}>
+          Find fills ({algs.finder})
+        </button>
         {handoff.busy && handoff.job ? (
           <button
             type="button"
@@ -1852,7 +1861,9 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       <p className="mt-2 text-xs text-muted">
         The flood button runs one dam ({algs.rundam}, or the DamIT runner CLI when both Point X and Point Y are filled in
         the DEM's coordinates). It does not start {algs.batch}. A failure mode that was not chosen is sent as piping.
-        The drawn line stays longitude and latitude, so it is not sent as DAM_LINES.
+        The drawn line stays longitude and latitude, so it is not sent as DAM_LINES. Download layers keeps the offline
+        structure layers for the dam's state. Atlas 14 is a precipitation-frequency estimate, not a PMP study. Find
+        fills looks for embankments on the DEM; a candidate is not a listed dam.
       </p>
       <pre className="mt-3 max-h-72 overflow-auto rounded-sm bg-paper p-3 text-xs whitespace-pre-wrap">{handoff.log}</pre>
     </div>

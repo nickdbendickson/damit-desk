@@ -32,6 +32,9 @@ DEFAULT_ALGORITHMS: dict[str, str] = {
     "runchain": "damit_screen:runchain",
     "rundam": "damit_run:rundam",
     "batch": "damit_run:batch",
+    "data": "damit_data:download",
+    "pmp": "damit_pmp:pointpf",
+    "finder": "damit_find:embankments",
 }
 
 #: Which plugin is expected to publish each role, and whether that id is confirmed yet.
@@ -41,6 +44,9 @@ ROLE_INFO: dict[str, dict[str, str]] = {
     "runchain": {"plugin": "damit_screener", "status": "published", "analog": "nddam:runchain"},
     "rundam": {"plugin": "damit_runner", "status": "published", "analog": "ndbreach:rundam"},
     "batch": {"plugin": "damit_runner", "status": "not published", "analog": "ndbreach:batch (never started by the app)"},
+    "data": {"plugin": "damit_data", "status": "published", "analog": "damit_data:download"},
+    "pmp": {"plugin": "damit_pmp", "status": "published", "analog": "damit_pmp:pointpf"},
+    "finder": {"plugin": "damit_finder", "status": "published", "analog": "damit_find:embankments"},
 }
 
 ENV_VARS: dict[str, str] = {role: f"DAMIT_ALG_{role.upper()}" for role in DEFAULT_ALGORITHMS}

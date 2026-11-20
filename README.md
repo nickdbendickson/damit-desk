@@ -31,14 +31,28 @@ bash suite_install/install-all.sh
 
 On Windows, `suite_install\install-all-windows.cmd`. On a Mac, run `download-all.sh` first and keep the folder in your home directory. Details are in that repository's `suite_install/README.md`.
 
-If `qgis_process` is not on `PATH`, set `QGIS_PROCESS` to it. The desk looks for the DamIT algorithm ids (`damit:classify`, `damit_screen:preflight`, `damit_screen:runchain`, `damit_run:rundam`). It will not call the North Dakota suite ids.
+If `qgis_process` is not on `PATH`, set `QGIS_PROCESS` to it. The desk looks for the DamIT algorithm ids (`damit:classify`, `damit_screen:preflight`, `damit_screen:runchain`, `damit_run:rundam`, `damit_data:download`, `damit_pmp:pointpf`, `damit_find:embankments`). It will not call the North Dakota suite ids.
 
 You do not open `open-damit-qgis.sh`. That launcher is for someone who wants the QGIS window.
 
+## A shortcut
+
+```bash
+bin/install-launcher          # Mac: ~/Applications/DamIT Desk.app
+                              # Linux: a menu entry
+```
+
+On Windows, from the repo folder:
+
+```powershell
+powershell -File bin\install-launcher.ps1
+```
+
+That puts DamIT Desk in the Start menu. The shortcut runs `bin\damit-desk.cmd`.
+
 ## What is not in this repo yet
 
-- A signed Mac `.dmg` and a Windows `.exe` installer. The scripts above are the install. A shortcut on each OS is the next polish, not a second codebase.
-- Data download, PMP, and Finder as desk buttons. They are still plugins. They get the same `qgis_process` treatment when they are added here.
+- A signed Mac `.dmg` and a Windows `.exe` installer. The scripts above are the install. The shortcut is the app icon; the signed installers are later.
 - A headless engine with QGIS removed from Runner's `engine.py` and Hazard's `classify.py`. That is the later swap, behind this same window. Results people already have do not change, because today this desk calls those plugins as they are.
 
 ## Layout
@@ -46,6 +60,9 @@ You do not open `open-damit-qgis.sh`. That launcher is for someone who wants the
 ```
 bin/damit-desk            Linux and Mac
 bin/damit-desk.cmd        Windows
+bin/install-launcher      Mac app and Linux menu entry
+bin/install-launcher.ps1  Windows Start-menu shortcut
+share/damit-desk.svg      the icon
 app/                      the desk (React + Leaflet, pywebview)
   desktop/run.py          python entry
   src/lib/crest/          breach screen, handoff, jurisdiction display

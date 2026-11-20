@@ -15,6 +15,9 @@ export const DEFAULT_ALGORITHMS = {
   runchain: "damit_screen:runchain",
   rundam: "damit_run:rundam",
   batch: "damit_run:batch",
+  data: "damit_data:download",
+  pmp: "damit_pmp:pointpf",
+  finder: "damit_find:embankments",
 } as const;
 
 /** Piping unless overtopping was chosen (Nick, 2026-11-05): a missing or unknown mode is never overtopping. */

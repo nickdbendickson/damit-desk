@@ -65,6 +65,9 @@ such a port also works. Enums are sent as the option index read from `help` (QGI
 | Write folder and run screening | `preflight`, then `runchain` **only if READY** | `--WORK --DAMS=<dam folder>/dam_point.geojson --MODE --PRESET` (preset) or `--SCENARIOS --METHODS` (custom) `[--TERRAIN] [--APPLY_ADVISORIES] --SETTINGS`; preflight adds `--REPORT`, runchain `--PREFLIGHT=true --FAIL_ON_ERROR=true` |
 | Run the flood model | `rundam` (one dam) or the runner CLI | `--HANDOFF=<work>/handoff/<id>/damit_handoff.json` when the screening wrote it, else `--DAM_ID --X --Y --CRS=EPSG:4326 --HEIGHT_FT --STORAGE_ACFT --MODE --PRESET/--SCENARIOS/--METHODS [--TERRAIN] [--HYDROGRAPH]`; always `--OUTPUT_FOLDER=<work>/runs --DRY_RUN=true`, never `ENGINE`; CLI: `run runner_config.json` |
 | Classify | `classify` | `--PRESET=<index>` (0 = custom, else the option whose text is the preset's catalog label) `[--METHODS --SCENARIOS --MODIFIERS] [--APPLY_ADVISORY] --DEPTH [--VELOCITY] [--DV] [--WSE] [--NONBREACH] [--ARRIVAL]` + the receptor layers `[--STRUCTURES] [--ROADS] [--RAIL] [--FACILITIES] [--LIFELINES] [--ENVIRONMENT]=<dam folder>/classify_inputs/<layer>.geojson` (at least one) `[--DOMAIN=<dam folder>/classify_inputs/domain.geojson] --DAM_JSON=<dam folder>/damit_dam.json --DAM_NAME --OUTPUT=<dam folder>/classify` |
+| Download layers | `data` (`damit_data:download`) | `--FOLDER=<DamIT data folder or <work>/data>` `[--STATE=<index of the NID postal code>]` `[--EXTENT=<drawn area>]` |
+| Atlas 14 point | `pmp` (`damit_pmp:pointpf`) | `--POINT=<lon>,<lat> [EPSG:4326] --OUTPUT_CSV=<work>/pmp/<id>_atlas14.csv --OUTPUT_JSON=<work>/pmp/<id>_atlas14.json` |
+| Find fills | `finder` (`damit_find:embankments`) | `--DEM=<local DEM> --OUT=<work>/finder/<id>_embankments.gpkg` `[--EXTENT=<drawn area>]` |
 
 Details:
 
