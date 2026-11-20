@@ -14,6 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 
 import io  # noqa: E402
 
@@ -32,6 +33,7 @@ from damit_desktop.qgis_run import (  # noqa: E402
     run_model,
     run_screening,
 )
+from fakeproc import pin_home, write_exe  # noqa: E402
 
 DAM = {
     "nid": "ND00199",
@@ -192,9 +194,8 @@ sys.exit(0)
 """
 
 
-def _exe(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8")
-    path.chmod(0o755)
+def _exe(path: Path, text: str) -> Path:
+    return write_exe(path, text)
 
 
 class FolderTests(unittest.TestCase):
@@ -332,10 +333,10 @@ class GateTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.calls = self.root / "calls.txt"
-        self.qgis = self.root / "qgis_process"
-        self.cli = self.root / "damit_cli.py"
-        _exe(self.qgis, QGIS)
-        _exe(self.cli, CLI)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.qgis = write_exe(self.root / "qgis_process", QGIS)
+        self.cli = write_exe(self.root / "damit_cli.py", CLI)
         self.env = {
             "QGIS_PROCESS": os.environ.get("QGIS_PROCESS"),
             "QGIS_MODE": os.environ.get("QGIS_MODE"),
@@ -353,8 +354,7 @@ class GateTests(unittest.TestCase):
             **{k: os.environ.get(k) for k in ENV_VARS.values()},
         }
         # A clean home: no ~/.damit or ~/.ndsuite config and no installed QGIS plugins leak into the tests.
-        os.environ["HOME"] = str(self.root / "home")
-        (self.root / "home").mkdir()
+        pin_home(os.environ, self.home)
         for key in ("DAMIT_DATA", "DAMIT_HANDOFF_CONFIG", "QGIS_MISSING", *ENV_VARS.values()):
             os.environ.pop(key, None)
         os.environ.pop("DAMIT_SCREENING_TIMEOUT_S", None)
@@ -418,7 +418,8 @@ class GateTests(unittest.TestCase):
         settings = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(settings["only_ids"], "ND00199")
         text = self.calls_text()
-        self.assertIn(f"--SETTINGS={path}", text)
+        settings_arg = f"--SETTINGS={path.resolve()}"
+        self.assertTrue(settings_arg in text or f"--SETTINGS={path}" in text, text)
         self.assertIn("--DAM_ID=ND00199", text)
         self.assertIn("--DAM_ID=ND00199", text)
 
@@ -857,6 +858,7 @@ class RobustnessTests(unittest.TestCase):
         _opt_num(cmd, "TOP_FT", 12.5)
         self.assertEqual(cmd, ["--TOP_FT=12.5"])
 
+    @unittest.skipIf(os.name == "nt", "Windows paths cannot contain '?'")
     def test_chain_names_handles_a_work_path_with_a_question_mark(self):
         # A '?' in the work-folder name must not break the SQLite file: URI (it would be read as a query, leaving
         # the path truncated so the open fails and the dam is silently not found). Build a minimal gpkg and look

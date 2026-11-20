@@ -16,6 +16,7 @@ from unittest import mock
 
 DESKTOP = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DESKTOP))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import damit_desktop.qgis_run as qr  # noqa: E402
 from damit_desktop.algorithms import (  # noqa: E402
@@ -27,6 +28,7 @@ from damit_desktop.algorithms import (  # noqa: E402
     load_config,
 )
 from damit_desktop.handoff import resolved_failure_mode, write_dam_folder  # noqa: E402
+from fakeproc import pin_home, write_exe  # noqa: E402
 
 # The parameter lists of the published DamIT algorithms: damit_screener / damit_runner 0.2.0 (rundam launches the
 # model with the DamSafety Runner's parameters) and damit_hazard's damit:classify. FAKE_STYLE=nd gives rundam an
@@ -198,15 +200,14 @@ class Base(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         self.calls = self.root / "calls.txt"
-        self.qgis = self.root / "qgis_process"
-        self.qgis.write_text(FAKE_QGIS, encoding="utf-8")
-        self.qgis.chmod(0o755)
+        self.qgis = write_exe(self.root / "qgis_process", FAKE_QGIS)
         clean = {k: "" for k in ENV_VARS.values()}
         self.env = mock.patch.dict(
             os.environ,
             {
                 **clean,
                 "HOME": str(self.home),
+                "USERPROFILE": str(self.home),
                 "QGIS_PROCESS": str(self.qgis),
                 "CALLS": str(self.calls),
                 "DAMIT_CLI": "",
@@ -320,7 +321,9 @@ class CliSearchTests(Base):
 
     def test_finds_the_damit_runner_cli_in_a_damit_plugin(self):
         path = self.plugin_file("damit_runner", "damit_cli.py")
-        self.assertEqual(find_damit_cli(load_config(None)), str(path))
+        found = find_damit_cli(load_config(None))
+        self.assertIsNotNone(found)
+        self.assertEqual(Path(found).resolve(), path.resolve())
 
     def test_ignores_the_nd_runner_cli(self):
         self.plugin_file("DamSafety_Runner", "ndbreach_cli.py")
@@ -338,7 +341,9 @@ class CliSearchTests(Base):
         path.parent.mkdir(parents=True)
         path.write_text(FAKE_CLI, encoding="utf-8")
         with mock.patch.dict(os.environ, {"APPDATA": str(appdata)}):
-            self.assertEqual(find_damit_cli(load_config(None)), str(path))
+            found = find_damit_cli(load_config(None))
+        self.assertIsNotNone(found)
+        self.assertEqual(Path(found).resolve(), path.resolve())
 
 
 class HandoffRunTests(Base):
