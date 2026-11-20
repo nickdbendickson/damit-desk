@@ -95,6 +95,45 @@ class PartialScreeningTests(Base):
         self.assertIn("Also a gap in the suggest step", text)
         self.assertNotIn("The screening chain failed", text)
 
+    def test_screener_0_3_7_partial_flag_on_a_chain_that_finishes_ok(self):
+        # DamIT Screener 0.3.7 (damit #146) no longer fails the chain for a time-limited flood: it exits OK and marks
+        # the engine2d step and the package gap partial=true. The desk must still show the PARTIAL warning (amber box).
+        with mock.patch.dict(os.environ, {"FAKE_CHAIN": "partial-ok"}):
+            result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        self.assertTrue(result["partial"])
+        self.assertTrue(result["timedOut"])
+        self.assertTrue(result["flood"]["timedOut"])
+        self.assertEqual(result["screening"]["suggested_label"], "Medium")
+        self.assertIn("PARTIAL SCREENING", result["warning"])
+        self.assertIn("5,190.8 ac", result["warning"])
+        text = "\n".join(self.lines)
+        self.assertIn("The screener marked the flood PARTIAL (time limit) and finished the chain", text)
+        self.assertNotIn("FAIL_ON_ERROR", text)
+        self.assertNotIn("Screening chain finished.", self.lines, "not a plain finish")
+        self.assertIn("finished with a PARTIAL (preliminary) result", text)
+
+    def test_screener_0_3_7_partial_without_a_class(self):
+        with mock.patch.dict(os.environ, {"FAKE_CHAIN": "partial-ok-noclass"}):
+            result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        self.assertTrue(result["partial"])
+        self.assertIsNone(result["screening"].get("suggested_label"))
+        self.assertIn("no preliminary class", result["warning"])
+        self.assertIn("Also a gap in the suggest step", "\n".join(self.lines))
+
+    def test_the_old_screener_still_names_fail_on_error(self):
+        with mock.patch.dict(os.environ, {"FAKE_CHAIN": "partial"}):
+            qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertIn("FAIL_ON_ERROR, DamIT Screener 0.3.5-0.3.6", "\n".join(self.lines))
+
+    def test_a_finished_flood_is_not_partial(self):
+        with mock.patch.dict(os.environ, {"FAKE_PACKAGE": "1"}):
+            result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        self.assertNotIn("partial", result)
+        self.assertIn("Screening chain finished.", self.lines)
+
     def test_a_real_failure_still_fails(self):
         with mock.patch.dict(os.environ, {"FAKE_CHAIN": "fail"}):
             result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)

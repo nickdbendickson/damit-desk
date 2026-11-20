@@ -1008,15 +1008,18 @@ def run_screening(
     if code == STOPPED_CANCEL:
         log("The screening chain was stopped. Its outputs so far stay in the work folder; chain_log.txt has the steps that ran.")
         return {**out, "ok": False, "stopped": True, "cancelled": True, "timedOut": False}
+    # A flood stopped by its time limit is a PARTIAL result. DamIT Screener 0.3.7 (damit #146) finishes the chain OK
+    # and marks it partial (partial=true, partial_reason=time_limit); 0.3.5-0.3.6 failed the chain with "did not run".
+    # Either way this run's package and steps.json say so, so this is checked after a successful chain too.
+    partial = screening_partial(root, folder, dam_id, started, desk_timeout=code == STOPPED_TIMEOUT)
+    if partial is not None:
+        return _partial_result(out, partial, dam_id, log, chain_failed=code != 0)
+    if code == STOPPED_TIMEOUT:
+        log("The screening chain was stopped at its time limit before it wrote a preliminary result. Its outputs so "
+            "far stay in the work folder; chain_log.txt has the steps that ran. Raise DAMIT_SCREENING_TIMEOUT_S, or "
+            "give the screening a local DEM so its larger clips do not download USGS 3DEP.")
+        return {**out, "ok": False, "stopped": True, "cancelled": False, "timedOut": True}
     if code != 0:
-        partial = screening_partial(root, folder, dam_id, started, desk_timeout=code == STOPPED_TIMEOUT)
-        if partial is not None:
-            return _partial_result(out, partial, dam_id, log)
-        if code == STOPPED_TIMEOUT:
-            log("The screening chain was stopped at its time limit before it wrote a preliminary result. Its outputs so "
-                "far stay in the work folder; chain_log.txt has the steps that ran. Raise DAMIT_SCREENING_TIMEOUT_S, or "
-                "give the screening a local DEM so its larger clips do not download USGS 3DEP.")
-            return {**out, "ok": False, "stopped": True, "cancelled": False, "timedOut": True}
         log("The screening chain failed. The flood model was not started.")
         return {**out, "ok": False, "stopped": True}
     package = handoff_package(root, dam_id)
@@ -1048,13 +1051,14 @@ def _fresh_json(path: Path, since: float) -> dict | None:
 
 
 def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_timeout: bool = False) -> dict | None:
-    """A screening that stopped at its time limit but still wrote this run's hand-off package with a preliminary class.
+    """A screening whose 2D flood stopped at its time limit but still wrote this run's hand-off package.
 
-    DamIT Screener keeps its 2D flood's maxima when the flood reaches 0.8 x DAMIT_SCREENING_TIMEOUT_S, marks the step
-    GAP ("partial: time limit"), still writes the package, and then (FAIL_ON_ERROR, Screener 0.3.5+) fails the
-    chain, saying the flood "did not run". That flood did run; its partial maxima are a lower bound. Returns
-    {"screening", "handoff", "flood"} when this run's package has a suggested class and the flood timed out (or the
-    desk itself stopped the chain at its limit), else None."""
+    DamIT Screener keeps its 2D flood's maxima when the flood reaches 0.8 x DAMIT_SCREENING_TIMEOUT_S and marks the
+    engine2d step GAP ("partial: time limit"). Screener 0.3.7+ (damit #146) also sets partial=true /
+    partial_reason=time_limit on the step and on the package's engine2d gap, and finishes the chain OK; 0.3.5-0.3.6
+    failed the chain (FAIL_ON_ERROR) saying the flood "did not run". Its maxima so far are a lower bound. Returns
+    {"screening", "handoff", "flood", "otherGaps"} when this run's package exists and the flood timed out (or the
+    desk itself stopped the chain at its limit), else None. Same reading as DamIT Crest (damit #146)."""
     package = handoff_package(root, dam_id)
     pkg = _fresh_json(package, since)
     if pkg is None:
@@ -1067,7 +1071,8 @@ def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_
     stats = engine.get("stats") if isinstance(engine.get("stats"), dict) else {}
     gaps = [g for g in (pkg.get("gaps") or []) if isinstance(g, dict)]
     flood_gap = next((g for g in gaps if g.get("step") == "engine2d"), None)
-    timed_out = bool(stats.get("timed_out")) or "time limit" in str((flood_gap or {}).get("detail") or "")
+    timed_out = (bool(engine.get("partial")) or bool((flood_gap or {}).get("partial")) or bool(stats.get("timed_out"))
+                 or "time limit" in str((flood_gap or {}).get("detail") or ""))
     if not (timed_out or desk_timeout):
         return None
     flood = {"timedOut": timed_out, "detail": engine.get("detail") or (flood_gap or {}).get("detail") or "",
@@ -1079,7 +1084,7 @@ def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_
             "otherGaps": [g for g in gaps if g.get("step") != "engine2d"]}
 
 
-def _partial_result(out: dict, partial: dict, dam_id: str, log) -> dict:
+def _partial_result(out: dict, partial: dict, dam_id: str, log, chain_failed: bool = True) -> dict:
     flood = partial["flood"]
     label = partial["screening"].get("suggested_label")
     bits = []
@@ -1101,9 +1106,13 @@ def _partial_result(out: dict, partial: dict, dam_id: str, log) -> dict:
                    "(the screener computed no suggestion for this run). Use Classify on a finished flood for the class.")
     log("")
     log(warning)
-    log("The screener's chain says the flood \"did not run\" and fails because of the time limit (FAIL_ON_ERROR). "
-        "The flood did run; its maxima so far are kept" +
-        (", and the hand-off package below has the preliminary class." if label else "."))
+    if chain_failed:
+        log("The screener's chain says the flood \"did not run\" and fails because of the time limit (FAIL_ON_ERROR, "
+            "DamIT Screener 0.3.5-0.3.6). The flood did run; its maxima so far are kept" +
+            (", and the hand-off package below has the preliminary class." if label else "."))
+    else:
+        log("The screener marked the flood PARTIAL (time limit) and finished the chain; its maxima so far are kept" +
+            (", and the hand-off package below has the preliminary class." if label else "."))
     for name, path in (flood.get("rasters") or {}).items():
         log(f"Partial screening raster ({name}): {path}")
     if flood.get("edge"):

@@ -119,7 +119,13 @@ if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_CHAIN"):
     # time limit"), writes the package with its preliminary class, then fails the chain (FAIL_ON_ERROR) saying the
     # flood "did not run". FAKE_CHAIN=partial-noclass: the same with no preliminary class in the package.
     # FAKE_CHAIN=fail fails with no package; FAKE_CHAIN=nopkg-timeout writes only steps.json.
+    # FAKE_CHAIN=partial-ok / partial-ok-noclass: DamIT Screener 0.3.7+ (damit #146) marks the engine2d step and the
+    # package gap partial=true / partial_reason=time_limit and finishes the chain OK (exit 0).
     mode = os.environ["FAKE_CHAIN"]
+    new = mode.startswith("partial-ok")
+    flags = {"partial": True, "partial_reason": "time_limit"} if new else {}
+    if new:
+        mode = "partial" if mode == "partial-ok" else "partial-noclass"
     settings = json.loads(Path(vals["SETTINGS"]).read_text())
     Path(os.environ["CALLS"]).open("a").write("SETTINGS " + json.dumps(settings) + "\n")
     dam_id = (settings.get("dam_ids") or [""])[0]
@@ -129,21 +135,25 @@ if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_CHAIN"):
         dam_dir.mkdir(parents=True, exist_ok=True)
         (dam_dir / "steps.json").write_text(json.dumps({"engine2d": {"status": "gap", "detail": detail, "stats": {
             "flooded_acres": 5190.8, "max_depth_ft": 12.49, "sim_time_hr": 18.0, "run_s": 2880.1,
-            "timed_out": True, "edge_flag": True}}}))
+            "timed_out": True, "edge_flag": True}, **flags}}))
     if mode == "partial":
         folder = Path(vals["WORK"]) / "handoff" / dam_id
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
             "status": "computed_preliminary", "suggested_label": "Medium", "suggested_ordinal": 2},
-            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail}]}))
+            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail, **flags}]}))
     if mode == "partial-noclass":
         # As on Absaraka 2026-11-20: no receptors screened, so the package has no suggestion, only the flood gap.
         folder = Path(vals["WORK"]) / "handoff" / dam_id
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
             "status": "not_computed", "suggested_label": None, "suggested_ordinal": None},
-            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail},
+            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail, **flags},
                      {"step": "suggest", "status": "gap", "detail": "no receptor hydraulics yet"}]}))
+    if new:
+        print("!!! " + dam_id + ": PARTIAL SCREENING: the screening flood reached its time limit (" + detail + ")")
+        print("OK:\ttrue")
+        sys.exit(0)
     print("runchain: 1 dam(s) failed: " + dam_id + ": did not run: " + detail)
     sys.exit(1)
 if any(a.endswith(":rundam") for a in args) and "OUTPUT_FOLDER" in vals:
