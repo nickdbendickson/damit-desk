@@ -19,15 +19,19 @@
  * with { method: "stage" }.
  */
 
+import { WET_FT } from "./acer.ts";
 import { type ExtentSensitivity, extentSensitivity } from "./extent.ts";
 import { floodStrip } from "./floodstrip.ts";
+import { fetchFlowlines, type FlowLine } from "./flowlines.ts";
 import {
   buildOutline,
   DEM_SERVICE,
   depthCapFt,
   DEM_ATTRIBUTION,
   demRequest,
+  demSourceLabel,
   fetchDem,
+  openEdgeOf,
   outlineInputs,
   polygonizeDepth,
   polygonizeDepthAsync,
@@ -213,7 +217,25 @@ async function routedCache(
     ...(reach ? { reach } : {}),
     notes: routed.notes,
   };
-  return { fingerprint, builtAt: new Date().toISOString(), source: DEM_SERVICE, attribution: DEM_ATTRIBUTION, stats, outline: poly.outline, layer: "routed", routed: r };
+  // Where the flood goes on beyond the terrain shown: a dashed edge on the map and a feature in the export.
+  const dlon = (g.bbox[2] - g.bbox[0]) / g.width;
+  const dlat = (g.bbox[3] - g.bbox[1]) / g.height;
+  const r7 = (v: number) => Math.round(v * 1e7) / 1e7;
+  // The water still travelling where the flood meets the terrain's edge (what the reach could not take in).
+  const beyondAcFt = routed.stats.reachedEdge ? routed.stats.travellingAcFt : 0;
+  const openEdge = openEdgeOf(
+    g.width,
+    g.height,
+    (k) => routed.depthFt[k] >= WET_FT - 1e-9,
+    routed.ground,
+    routed.held,
+    (p) => [r7(g.bbox[0] + p[0] * dlon), r7(g.bbox[3] + p[1] * dlat)],
+    g.cellM,
+    `${common.dam_id}: the flood goes on beyond the terrain shown`,
+    beyondAcFt,
+  );
+  const outline = openEdge ? { ...poly.outline, openEdge } : poly.outline;
+  return { fingerprint, builtAt: new Date().toISOString(), source: DEM_SERVICE, attribution: DEM_ATTRIBUTION, stats, outline, layer: "routed", routed: r };
 }
 
 /**
@@ -298,7 +320,20 @@ export type InundationReachOptions = {
   fetch?: (req: DemRequest) => Promise<DemGrid>;
   /** Extension rounds allowed for the routed flood (reach.ts REACH_MAX_ROUNDS by default; 0 builds once). */
   maxRounds?: number;
+  /**
+   * Mapped flowlines through lakes (flowlines.ts), for the trace. Undefined: defaultFlowlines() (the 3DHP service in
+   * a browser on 3DEP terrain, none elsewhere); null: none.
+   */
+  flowlines?: ((bbox: DemRequest["bbox"]) => Promise<FlowLine[]>) | null;
 };
+
+/**
+ * The flowline source a build uses when none is given: the USGS 3DHP service in the browser (page or worker) on 3DEP
+ * terrain; none in Node (scripts, tests: they pass one) or on a local DEM (the desktop may be offline).
+ */
+export function defaultFlowlines(): ((bbox: DemRequest["bbox"]) => Promise<FlowLine[]>) | null {
+  return typeof (globalThis as { location?: unknown }).location !== "undefined" && demSourceLabel() === "3DEP" ? (b) => fetchFlowlines(b) : null;
+}
 
 /**
  * Fetch the terrain and build the inundation layer the gate picks, growing the terrain downstream on demand when the
@@ -312,7 +347,9 @@ export async function buildInundationReach(dam: DamRecord, result: Analysis, opt
   if (!io.ok) return { ok: false, reason: io.reason };
   const fetchFn = opts.fetch ?? fetchDem;
   if (choice.layer === "routed") {
+    const flowlines = opts.flowlines === undefined ? defaultFlowlines() : opts.flowlines;
     const rb = await buildRoutedFloodReach(dam, result, {
+      ...(flowlines ? { flowlines } : {}),
       inputs: io.inputs,
       method: ROUTED_METHOD,
       yieldFn: opts.yieldFn,

@@ -3,7 +3,9 @@ import { downstreamDirection, readAoi, type Part, type XY } from "./aoi.ts";
 import { damLocation, ENGINE_VERSION } from "./engine.ts";
 import type { ExtentSensitivity } from "./extent.ts";
 import { bandFor, DEPTH_BANDS, floodStrip, type FloodStrip, type StripFeature } from "./floodstrip.ts";
+import { BURN_M } from "./flowlines.ts";
 import type { Bbox } from "./plss.ts";
+import { DEFAULT_ROUGHNESS, roughnessOf } from "./routing.ts";
 import type { Centerline } from "./sections.ts";
 import type { Analysis, DamRecord } from "./types.ts";
 import { warning, type Warning } from "./warnings.ts";
@@ -44,8 +46,16 @@ export const OUTLINE_OFFLINE =
   "The terrain outline needs a connection: build it once while online (USGS 3DEP terrain), and it is saved with this dam for offline use.";
 
 export const OUTLINE_CELL_M = 10;
-/** Largest DEM side requested (the service allows 8000); the cell grows past this. */
+/**
+ * Sets the terrain's cell budget: a grid holds at most OUTLINE_MAX_PX² cells (9 million, the 3000 × 3000 box this used
+ * to cap each side at). Past it the cell grows. A long, narrow box (a river running far one way) keeps the 10 m cell
+ * at any side length within the budget and is fetched in tiles of DEM_TILE_PX (Nick, 2026-11-18: Edenville's corridor
+ * dropped to 20 m when only its long side passed 3000 cells).
+ */
 export const OUTLINE_MAX_PX = 3000;
+/** Largest side (cells) asked of the 3DEP service in one request (it allows 8000, but a 3000-cell side can outrun the
+ *  90 s timeout when the service is busy); a bigger grid is fetched in tiles. */
+export const DEM_TILE_PX = 2000;
 const SKIP_M = 60;
 const MIN_CELLS = 20;
 const NODATA = -9999;
@@ -407,12 +417,87 @@ export type ExtentFeature = {
   geometry: { type: "MultiLineString"; coordinates: [number, number][][] };
 };
 
+/**
+ * Where the routed flood goes on beyond the terrain shown (Nick, 2026-11-18): the wet cells' edges on the DEM's border,
+ * and on the edge of a stretch's ground that was held at the cap with water still to pour (spread.ts held). A dashed
+ * line on the map and one more feature in the GeoJSON export, so a reader sees where the layer stops short of the water.
+ */
+export type OpenEdgeFeature = {
+  type: "Feature";
+  properties: { kind: "flood_continues"; label: string; held_ac_ft: number; edge_km: number };
+  geometry: { type: "MultiLineString"; coordinates: [number, number][][] };
+};
+
+/**
+ * The open edge of a routed layer (OpenEdgeFeature), or null when the flood stops inside what is shown. `wet(k)` is the
+ * layer's wet test; `ground` and `held` are the spread's (absent: only the DEM's border counts). Cell edges are joined
+ * into straight runs along each row and column.
+ */
+export function openEdgeOf(
+  W: number,
+  H: number,
+  wet: (k: number) => boolean,
+  ground: Uint8Array | undefined,
+  held: Uint8Array | undefined,
+  toLonLat: (p: XY) => [number, number],
+  cellM: number,
+  label: string,
+  heldAcFt: number,
+): OpenEdgeFeature | null {
+  const open = (k: number, i: number, j: number) => {
+    if (i < 0 || j < 0 || i >= W || j >= H) return true;
+    return !!held && held[k] === 1 && !!ground && ground[j * W + i] === 0;
+  };
+  const lines: [number, number][][] = [];
+  let edges = 0;
+  // Horizontal edges: the north side of row j (facing j - 1) and the south side (facing j + 1), runs along i.
+  for (let j = 0; j < H; j++)
+    for (const dj of [-1, 1]) {
+      let run = -1;
+      for (let i = 0; i <= W; i++) {
+        const k = j * W + i;
+        const on = i < W && wet(k) && (j + dj < 0 || j + dj >= H ? true : open(k, i, j + dj));
+        if (on && run < 0) run = i;
+        if (!on && run >= 0) {
+          const y = dj < 0 ? -j : -(j + 1);
+          lines.push([toLonLat([run, y]), toLonLat([i, y])]);
+          edges += i - run;
+          run = -1;
+        }
+      }
+    }
+  // Vertical edges: the west side of column i (facing i - 1) and the east side (facing i + 1), runs along j.
+  for (let i = 0; i < W; i++)
+    for (const di of [-1, 1]) {
+      let run = -1;
+      for (let j = 0; j <= H; j++) {
+        const k = j * W + i;
+        const on = j < H && wet(k) && (i + di < 0 || i + di >= W ? true : open(k, i + di, j));
+        if (on && run < 0) run = j;
+        if (!on && run >= 0) {
+          const x = di < 0 ? i : i + 1;
+          lines.push([toLonLat([x, -run]), toLonLat([x, -j])]);
+          edges += j - run;
+          run = -1;
+        }
+      }
+    }
+  if (!lines.length) return null;
+  return {
+    type: "Feature",
+    properties: { kind: "flood_continues", label, held_ac_ft: Math.round(heldAcFt), edge_km: r3((edges * cellM) / 1000) },
+    geometry: { type: "MultiLineString", coordinates: lines },
+  };
+}
+
 export type TerrainOutline = FloodStrip & {
   /**
    * Foreign member (RFC 7946 §6.1): the generalized flood extent line (trace version 8 on). Kept out of `features` so
    * the band lists, legend and acres read the bands only; exportFloodGeoJson adds it as a feature for GIS.
    */
   extent?: ExtentFeature;
+  /** Foreign member: where a routed flood goes on beyond the terrain shown (openEdgeOf); absent when it stops inside. */
+  openEdge?: OpenEdgeFeature;
   properties: FloodStrip["properties"] & {
     kind: "terrain_outline";
     outline_area_ac: number;
@@ -566,6 +651,7 @@ export function outlineInputs(dam: DamRecord, result: Analysis): { ok: true; inp
     fromM = aoi.nearKm * 1000;
   }
   const r = (n: number) => Math.round(n * 1000) / 1000;
+  const rough = roughnessOf(dam.roughness);
   // The fingerprint mixes in the two METHOD versions (the engine's numerics and the terrain trace), never the build
   // version (version.ts): a rebuild that changes no method must not ask every saved layer to be built again.
   const fingerprint = fnv(
@@ -579,6 +665,10 @@ export function outlineInputs(dam: DamRecord, result: Analysis): { ok: true; inp
       f: r(fromM),
       s: Number.isFinite(dam.storageAcFt) ? r(dam.storageAcFt) : null,
       rd: roadPoints(dam).map((q) => [r(q.lon * 1e4), r(q.lat * 1e4)]),
+      // Only when the record leaves the defaults (top of dam, built-in Manning's n), so every layer saved before
+      // these options existed keeps its fingerprint and is not asked to be rebuilt.
+      ...(result.breach.startPool && result.breach.startPool !== "top" ? { p: [result.breach.startPool, r(result.breach.startPoolNavdFt)] } : {}),
+      ...(rough !== DEFAULT_ROUGHNESS ? { n: [rough.nChannel, rough.nFloodplain] } : {}),
     }),
   );
   return { ok: true, inputs: { loc, u, st, parts, fromM, lastX: st[st.length - 1].x, fingerprint } };
@@ -606,8 +696,28 @@ function interp(st: OutlineInputs["st"], x: number, key: "h" | "d"): number {
   return st[st.length - 1][key];
 }
 
-/** DEM box and size: the corridor's extent (clipped to the drawn area's), at OUTLINE_CELL_M or coarser. */
-export function demRequest(inp: OutlineInputs, cellM = OUTLINE_CELL_M, maxPx = OUTLINE_MAX_PX): DemRequest {
+/**
+ * DEM box and size: the corridor's extent (clipped to the drawn area's), at OUTLINE_CELL_M, or coarser when the box
+ * would hold more than maxPx² cells. With `shorten`, a box past the budget is cut short down the corridor instead
+ * (the stations beyond where it fits at cellM are left out, at least the first two kept): the demand-driven reach
+ * (reach.ts) grows it again along the channel itself, so the flood keeps the fine cell where it actually runs.
+ */
+export function demRequest(inp: OutlineInputs, cellM = OUTLINE_CELL_M, maxPx = OUTLINE_MAX_PX, opts: { shorten?: boolean } = {}): DemRequest {
+  if (opts.shorten && inp.st.length > 2) {
+    const full = demRequest(inp, cellM, maxPx);
+    if (full.cellM > cellM + 1e-9) {
+      // The longest run of stations whose box fits the budget at cellM (binary search on the count kept).
+      let lo = 2;
+      let hi = inp.st.length;
+      while (hi - lo > 1) {
+        const m = (lo + hi) >> 1;
+        if (demRequest({ ...inp, st: inp.st.slice(0, m) }, cellM, maxPx).cellM <= cellM + 1e-9) lo = m;
+        else hi = m;
+      }
+      return demRequest({ ...inp, st: inp.st.slice(0, lo) }, cellM, maxPx);
+    }
+    return full;
+  }
   const { loc, u, st } = inp;
   const n: XY = [-u[1], u[0]];
   const kx = kxOf(loc.lat);
@@ -638,7 +748,7 @@ export function demRequest(inp: OutlineInputs, cellM = OUTLINE_CELL_M, maxPx = O
   }
   const wM = (b[2] - b[0]) * kx;
   const hM = (b[3] - b[1]) * M_PER_DEG_LAT;
-  const cell = Math.max(cellM, Math.max(wM, hM) / maxPx);
+  const cell = Math.max(cellM, Math.sqrt((wM * hM) / (maxPx * maxPx)));
   const width = Math.max(2, Math.ceil(wM / cell));
   const height = Math.max(2, Math.ceil(hM / cell));
   // Grow the box to whole cells so cells stay square in the local frame.
@@ -708,7 +818,49 @@ export async function fetchDem(req: DemRequest, fetchFn?: Fetch, retryMs: number
   return fetch3dep(req, fetchFn ?? (fetch as unknown as Fetch), retryMs);
 }
 
+/**
+ * The tiles a request is fetched in: the grid cut into blocks of at most DEM_TILE_PX cells a side, each a request of
+ * its own on the same lattice (same cell edges), so the pieces join cell for cell. One tile when the grid fits.
+ */
+export function demTiles(req: DemRequest, tilePx = DEM_TILE_PX): { i0: number; j0: number; req: DemRequest }[] {
+  const nx = Math.ceil(req.width / tilePx);
+  const ny = Math.ceil(req.height / tilePx);
+  if (nx * ny === 1) return [{ i0: 0, j0: 0, req }];
+  const dlon = (req.bbox[2] - req.bbox[0]) / req.width;
+  const dlat = (req.bbox[3] - req.bbox[1]) / req.height;
+  const r8 = (v: number) => Math.round(v * 1e8) / 1e8;
+  const out: { i0: number; j0: number; req: DemRequest }[] = [];
+  for (let ty = 0; ty < ny; ty++)
+    for (let tx = 0; tx < nx; tx++) {
+      const i0 = tx * tilePx;
+      const j0 = ty * tilePx;
+      const w = Math.min(tilePx, req.width - i0);
+      const h = Math.min(tilePx, req.height - j0);
+      const west = req.bbox[0] + i0 * dlon;
+      const north = req.bbox[3] - j0 * dlat;
+      out.push({ i0, j0, req: { bbox: [r8(west), r8(north - h * dlat), r8(west + w * dlon), r8(north)], width: w, height: h, cellM: req.cellM } });
+    }
+  return out;
+}
+
+/** Paste a tile's cells into a grid's array at (i0, j0). */
+export function pasteTile(z: Float32Array, width: number, tile: Float32Array, tw: number, th: number, i0: number, j0: number): void {
+  for (let r = 0; r < th; r++) z.set(tile.subarray(r * tw, r * tw + tw), (j0 + r) * width + i0);
+}
+
 async function fetch3dep(req: DemRequest, fetchFn: Fetch, retryMs: number[]): Promise<DemGrid> {
+  const tiles = demTiles(req);
+  if (tiles.length === 1) return fetch3depOne(req, fetchFn, retryMs);
+  const z = new Float32Array(req.width * req.height);
+  // Two at a time: the service answers a few in parallel well, and a long river is only a handful of tiles.
+  for (let t = 0; t < tiles.length; t += 2) {
+    const got = await Promise.all(tiles.slice(t, t + 2).map((x) => fetch3depOne(x.req, fetchFn, retryMs)));
+    got.forEach((g, k) => pasteTile(z, req.width, g.z, g.width, g.height, tiles[t + k].i0, tiles[t + k].j0));
+  }
+  return { ...req, z };
+}
+
+async function fetch3depOne(req: DemRequest, fetchFn: Fetch, retryMs: number[]): Promise<DemGrid> {
   const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), 90_000) : null;
   try {
@@ -740,6 +892,11 @@ export type BuildOptions = {
    * inputs with lastX (where the trace may stop) pushed downstream, round by round.
    */
   inputs?: OutlineInputs;
+  /**
+   * Flat water cells a mapped flowline crosses (flowlines.ts burnMask), lowered BURN_M for the drainage trace only, so
+   * the trace crosses a lake where the river runs. Used by the routed flood's trace; the bathtub outline ignores it.
+   */
+  burn?: Uint8Array | null;
 };
 
 /** Even-odd scanline mask of the AOI parts (local metres) on the grid. */
@@ -1398,6 +1555,9 @@ async function buildOutlineImpl(
   // and ponds fill to their spill level and every cell has a downhill receiver toward an edge.
   const fill = new Float64Array(N).fill(NaN);
   const recv = new Int32Array(N).fill(-1);
+  // The ground the trace drains over: the DEM, with the mapped flowlines burned into flat water (trace only).
+  const burn = traceOnly && opts.burn && opts.burn.length === N ? opts.burn : null;
+  const zT = burn ? Float32Array.from(g.z, (z, k) => (burn[k] ? z - BURN_M : z)) : g.z;
   const heap = new MinHeap(fill);
   const upstreamCut = a0 + 2 * cellM;
   const isEdge = (k: number) => {
@@ -1407,7 +1567,7 @@ async function buildOutlineImpl(
   };
   for (let k = 0; k < N; k++)
     if (dom[k] && along[k] > upstreamCut && isEdge(k)) {
-      fill[k] = g.z[k];
+      fill[k] = zT[k];
       heap.push(k);
     }
   if (heap.size === 0) return { ok: false, reason: "No terrain outline: the terrain has no downstream edge to drain to." };
@@ -1418,7 +1578,7 @@ async function buildOutlineImpl(
     for (let t = 0; t < 8; t++) {
       const m = nb[t];
       if (m < 0 || !dom[m] || !Number.isNaN(fill[m])) continue;
-      fill[m] = Math.max(g.z[m], fill[c] + 1e-5);
+      fill[m] = Math.max(zT[m], fill[c] + 1e-5);
       recv[m] = c;
       heap.push(m);
     }

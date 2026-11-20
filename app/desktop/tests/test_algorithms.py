@@ -49,7 +49,7 @@ LISTS = {
     "rundam": ["HANDOFF", "DAM_ID", "NID_ID", "IS_NEW", "IS_SAMPLE", "X", "Y", "CRS", "HEIGHT_FT", "STORAGE_ACFT",
                "MODE", "PRESET", "SCENARIOS", "METHODS", "TERRAIN", "HYDROGRAPH", "OUTPUT_FOLDER", "DRY_RUN",
                "DAMS_FOLDER", "DEM", "DEM_Z", "TOP_FT", "AREA_AC", "PMF_FT", "METHOD", "TIER", "CELL", "MANNING",
-               "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE"],
+               "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE", "DAM_LINES"],
     "download": ["STATE", "EXTENT", "SOURCES", "FOLDER", "FORCE", "MAX_MB"],
     "pointpf": ["POINT", "OUTPUT_CSV", "OUTPUT_JSON"],
     "embankments": ["DEM", "OUT", "EXTENT", "KNOWN"],
@@ -560,6 +560,7 @@ class PublishedInterfaceTests(Base):
         self.assertEqual(feats[0]["properties"]["dam_id"], "XX00001")
         self.assertEqual(feats[0]["properties"]["receptor_type"], "structure")
         self.assertEqual(feats[0]["properties"]["structure_type"], "home")
+        self.assertEqual(feats[0]["properties"]["source"], SEEDS[0].get("source") or "crest")   # Hazard's 911 test reads it
         self.assertEqual(feats[0]["geometry"]["coordinates"], [-100.0, 46.74])
         # the desk's payload, when sent with the screen job: its structures (points), not its roads
         qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log, receptors=PAYLOAD)

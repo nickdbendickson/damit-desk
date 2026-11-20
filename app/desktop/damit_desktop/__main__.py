@@ -17,6 +17,7 @@ import os
 import secrets
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 from functools import partial
@@ -26,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from damit_desktop import WEB_DIR_NAME
 from damit_desktop import browser_io
+from damit_desktop import defaults
 from damit_desktop import localdem
 from damit_desktop import nid
 from damit_desktop import qgis_run
@@ -50,11 +52,118 @@ PREFERRED_PORT = 47241
 
 TITLE = "DamIT Desk"
 
-#: Random per-launch secret. The served index.html carries it in <meta name="damit-token">; every /api/ call must
-#: send it back in the X-DamIT-Token header. A custom header also forces a CORS preflight, which this server never
+# Official DaMiT wordmark (docs/img/damit-wordmark-light.png), copied next to this package as icon.png
+# so python run.py and the packaged app can find it without Node or a Vite-hashed asset name.
+_ICON_NAME = "icon.png"
+
+
+def logo_path() -> Path | None:
+    """The DaMiT wordmark for the native window / packaged-app icon, or None if it is not on disk."""
+    here = Path(__file__).resolve().parent
+    candidates = [here / _ICON_NAME]
+    # A source checkout also has the original at the repo root.
+    try:
+        repo_logo = here.parents[2] / "docs" / "img" / "damit-wordmark-light.png"
+        candidates.append(repo_logo)
+    except IndexError:
+        pass
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        root = Path(meipass)
+        candidates.extend(
+            [
+                root / "damit_desktop" / _ICON_NAME,
+                root / _ICON_NAME,
+                root / "docs" / "img" / "damit-wordmark-light.png",
+            ]
+        )
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+
+#: Injected into the desk after every page load (evaluate_js runs outside the page CSP, and webview_csp.py keeps it
+#: from using eval, so script-src 'self' does not block it). It keeps the window on its own 127.0.0.1 origin: a click
+#: on an off-origin http(s) link, or a window.open to one, is cancelled and handed to the OS browser via
+#: window.pywebview.api.open_external. Same-origin links and non-web schemes (blob:, data:, about:, mailto:) are left
+#: to the page, so nothing legitimate changes.
+NAV_GUARD_JS = r"""
+(function () {
+  if (window.__damitNavGuard) return;
+  window.__damitNavGuard = true;
+  var ORIGIN = window.location.origin;
+  function external(url) {
+    try {
+      var u = new URL(url, window.location.href);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      return u.origin === ORIGIN ? null : u.href;
+    } catch (e) { return null; }
+  }
+  document.addEventListener("click", function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
+    if (!a) return;
+    var href = external(a.getAttribute("href"));
+    if (!href) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    try { window.pywebview.api.open_external(href); } catch (e) {}
+  }, true);
+  var nativeOpen = window.open;
+  window.open = function (url) {
+    var href = url ? external(String(url)) : null;
+    if (href) { try { window.pywebview.api.open_external(href); } catch (e) {} return null; }
+    return nativeOpen.apply(window, arguments);
+  };
+})();
+"""
+
+#: Random per-launch secret. main() opens the desk at index.html#damit-token=<token>: a URL fragment is never sent
+#: over HTTP, so no request to this server - from another local process or another OS user on a shared host - can
+#: obtain it (security audit 2026-11-18: it used to be written into <meta name="damit-token"> of the served page).
+#: The page keeps it in sessionStorage (src/lib/crest/desktop-server.ts); every /api/ call must send it back in the
+#: X-DamIT-Token header. It is never written into the page markup and no endpoint returns it. A custom header also forces a CORS preflight, which this server never
 #: answers, so other web origins cannot reach the API from a browser.
 TOKEN_HEADER = "X-DamIT-Token"
 API_TOKEN = secrets.token_urlsafe(32)
+
+#: Browser fallback (no pywebview window): the OS starts the browser with the address on its command line, which other
+#: local users can list (ps, /proc/<pid>/cmdline, Task Manager) for as long as that browser runs. So the fallback never
+#: puts API_TOKEN there. It opens /launch?code=<one-time code> instead; the server swaps a valid code, once, for a
+#: 303 redirect to index.html#damit-token=<token>, carried only in the HTTP response to the browser's own loopback
+#: connection. The code is random, single-use, expires after LAUNCH_CODE_TTL_S and is compared in constant time, so
+#: what stays visible on the command line is dead once the page has loaded. Residual risk (no fix without a channel the
+#: other user cannot read): a local user who reads the code and uses it before the browser does gets the token; the
+#: browser then gets the "already used" page, the terminal shows a warning, and restarting the desk makes a new token.
+#: Same scheme as Crest (crest-desktop/crest/__main__.py).
+LAUNCH_PATH = "/launch"
+LAUNCH_CODE_TTL_S = 120.0
+_launch_lock = threading.Lock()
+_launch: dict = {"code": None, "expires": 0.0, "used": False}
+
+
+def issue_launch_code(ttl: float = LAUNCH_CODE_TTL_S) -> str:
+    """A fresh one-time launch code (replaces any earlier one)."""
+    code = secrets.token_urlsafe(32)
+    with _launch_lock:
+        _launch.update(code=code, expires=time.monotonic() + ttl, used=False)
+    return code
+
+
+def consume_launch_code(code: str) -> str:
+    """'ok' (and the code is spent), 'used', 'expired' or 'invalid'. Constant-time compare; one success per code."""
+    with _launch_lock:
+        current = _launch["code"]
+        if not current or not code or not hmac.compare_digest(code.encode(), current.encode()):
+            return "invalid"
+        if _launch["used"]:
+            return "used"
+        if time.monotonic() > _launch["expires"]:
+            _launch.update(used=True)
+            return "expired"
+        _launch.update(used=True)
+        return "ok"
 _LOCAL_HOSTS = ("127.0.0.1", "localhost")
 
 #: damit-crest-settings.json (last Save folder, the chosen local DEM). Set by main(); tests set it directly.
@@ -114,7 +223,9 @@ def start_job(
     def work_job():
         try:
             log = lambda line: _job_log(job, line)
-            if kind == "layers":
+            if kind == "check":
+                result = qgis_run.run_check(log, cancel=cancel)
+            elif kind == "layers":
                 result = run_layers(dam or {}, work, source, log)
             elif kind == "folder":
                 result = run_folder(dam or {}, analysis or {}, work, log, files)
@@ -140,6 +251,8 @@ def start_job(
                     job["chainIds"] = list(result["chainIds"])
                 if result.get("chainResult"):
                     job["chainResult"] = list(result["chainResult"])
+                if result.get("check"):
+                    job["check"] = list(result["check"])
                 if isinstance(result.get("classification"), dict):
                     # damit:classify's class for the chosen jurisdiction; the Report step stores and leads with it.
                     job["classification"] = dict(result["classification"])
@@ -196,7 +309,40 @@ def check_bundle(root: Path | None = None) -> Path:
     return root
 
 
+#: Sent when the bundle has no security-headers.json (an older bundle): scripts and data from this server only.
+_FALLBACK_SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; worker-src 'self' blob:; "
+    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+def load_security_headers(root: Path) -> dict[str, str]:
+    """The response headers the desktop build wrote beside the bundle (web/security-headers.json).
+
+    The Content-Security-Policy there is built from src/lib/crest/csp.ts, the same source as DamIT.html's meta tag:
+    scripts from this server only, and the named tile and lookup services. DAMIT_NO_CSP=1 drops the policy (not the
+    other headers), for a webview that turns out to need something the policy does not allow.
+    """
+    try:
+        loaded = json.loads((root / "security-headers.json").read_text(encoding="utf-8"))
+        headers = {str(k): str(v) for k, v in loaded.items()} if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        headers = {}
+    if "Content-Security-Policy" not in headers:
+        headers = dict(_FALLBACK_SECURITY_HEADERS)
+    # A header value is one line: a newline in the file must not become a second header.
+    headers = {k: v for k, v in headers.items() if "\n" not in k + v and "\r" not in k + v}
+    if os.environ.get("DAMIT_NO_CSP") == "1":
+        headers.pop("Content-Security-Policy", None)
+    return headers
+
+
 class _Handler(SimpleHTTPRequestHandler):
+    #: Set per server by serve() from the bundle's security-headers.json.
+    security_headers: dict[str, str] = dict(_FALLBACK_SECURITY_HEADERS)
+
     extensions_map = {
         **SimpleHTTPRequestHandler.extensions_map,
         ".js": "text/javascript",
@@ -240,9 +386,32 @@ class _Handler(SimpleHTTPRequestHandler):
     def _serve_index(self) -> None:
         index = Path(self.directory) / "index.html"
         html = index.read_text(encoding="utf-8")
-        meta = f'<meta name="damit-token" content="{API_TOKEN}">'
-        html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
+        # The token is NOT injected into the page (see API_TOKEN): any local peer can GET / on the loopback port.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _serve_launch(self, query: dict) -> None:
+        """Browser fallback: swap the one-time launch code for a redirect that carries the token in the fragment."""
+        code = (query.get("code") or [""])[0]
+        result = consume_launch_code(code)
+        if result == "ok":
+            self.send_response(303)
+            self.send_header("Location", f"/index.html#damit-token={API_TOKEN}")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if result == "used":
+            print("DamIT Crest desktop: WARNING - the browser launch link was used more than once. If the desk in your "
+                  "browser says so, another program used it first: stop DamIT Crest (Ctrl+C) and start it again.",
+                  flush=True)
+        msg = {
+            "used": "This DamIT Crest launch link was already used. Use the DamIT Crest tab that is already open, or "
+                    "stop DamIT Crest (Ctrl+C in its terminal) and start it again for a new link.",
+            "expired": "This DamIT Crest launch link has expired. Stop DamIT Crest (Ctrl+C in its terminal) and start "
+                       "it again.",
+        }.get(result, "This is not a valid DamIT Crest launch link. Stop DamIT Crest (Ctrl+C in its terminal) and "
+                      "start it again.")
+        self._send(410 if result in ("used", "expired") else 403, msg.encode("utf-8"), "text/plain; charset=utf-8")
 
     def do_GET(self):
         if not self._host_ok():
@@ -251,6 +420,9 @@ class _Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/index.html"):
             self._serve_index()
+            return
+        if parsed.path == LAUNCH_PATH:
+            self._serve_launch(parse_qs(parsed.query))
             return
         if parsed.path.startswith("/api/") and not self._api_allowed():
             return
@@ -303,6 +475,7 @@ class _Handler(SimpleHTTPRequestHandler):
             "/api/data": "data",
             "/api/pmp": "pmp",
             "/api/finder": "finder",
+            "/api/check": "check",
         }
         kind = kinds.get(parsed.path)
         if not self._api_allowed():
@@ -502,13 +675,16 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        for name, value in self.security_headers.items():
+            self.send_header(name, value)
         super().end_headers()
 
 
 def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTPServer:
     """Serve the bundle on 127.0.0.1 in a daemon thread. Port 0 means any free port."""
     root = check_bundle(root)
-    handler = partial(_Handler, directory=str(root))
+    bundle_handler = type("_BundleHandler", (_Handler,), {"security_headers": load_security_headers(root)})
+    handler = partial(bundle_handler, directory=str(root))
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     except OSError as e:
@@ -516,7 +692,7 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTP
             raise
         print(f"DamIT Desk: port {port} is busy (another DamIT Desk, or another program). Using a random port for this "
               "session: records saved in the browser are kept per address, so the ones from port "
-              f"{port} are not shown until the desk runs on {port} again.")
+              f"{port} are not shown until the desk runs on {port} again.", flush=True)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
@@ -616,6 +792,14 @@ class Api:
             localdem.write_dem_path(self._settings_file, None)
         return {"path": None, "gdalwarp": localdem.find_gdalwarp()}
 
+    def get_defaults(self) -> dict:
+        """Your shared defaults file (defaults.py): its path and text, text None when you have none yet."""
+        return defaults.read_user()
+
+    def save_defaults(self, text: str) -> dict:
+        """Write your shared defaults file, the one the DamIT plugins read too."""
+        return defaults.write_user(text)
+
     def save_file(self, name: str, text: str) -> dict:
         import webview
 
@@ -668,6 +852,19 @@ class Api:
             return {"error": str(e)}
         self._remember_dir(Path(path).resolve().parent)
         return {"saved": str(path)}
+
+    def open_external(self, url: str) -> dict:
+        """Open an http/https link in the system browser. The desk window itself never leaves its own local origin:
+        the page nav guard (NAV_GUARD_JS) routes every off-origin link here, so a link can never drive the app to
+        another site. Any non-web scheme is refused rather than handed to the OS."""
+        try:
+            parsed = urlparse(str(url))
+        except Exception:
+            return {"error": "bad url"}
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return {"error": "only http/https links open in the browser"}
+        webbrowser.open(url)
+        return {"opened": url}
 
 
 #: Largest binary export accepted from the page (a view PDF is a few MB).
@@ -747,6 +944,16 @@ def write_text(path: Path, text: str) -> None:
         raise
 
 
+def desk_url(port: int) -> str:
+    """The address the desk window opens: the API token rides in the fragment, which is never sent over HTTP."""
+    return f"http://127.0.0.1:{port}/index.html#damit-token={API_TOKEN}"
+
+
+def launch_url(port: int, code: str) -> str:
+    """The address the browser fallback opens: a one-time launch code, never the API token (see LAUNCH_PATH)."""
+    return f"http://127.0.0.1:{port}{LAUNCH_PATH}?code={code}"
+
+
 def main() -> None:
     global SETTINGS_FILE
     store = storage_dir()
@@ -755,25 +962,47 @@ def main() -> None:
     qgis_run.SETTINGS_DIR = store  # damit-handoff.json is read from here (docs/HANDOFF.md)
     nid.NID_DIR = store / "nid"  # the per-state NID cache (nid.py), outside the install and any repository
     server = serve()
+    # printed without the token: opening this plain address elsewhere shows the desk, but its /api/ calls are refused
     url = f"http://127.0.0.1:{server.server_address[1]}/index.html"
+    open_url = desk_url(server.server_address[1])
+    # install test 2026-11-18: the address is printed at start (flushed: the launcher's output may be a pipe), so the
+    # port is visible whichever window opens. It carries no token: opened by hand it shows the desk, but every /api/
+    # call is refused. Only the window (or the browser fallback's one-time launch link) gets the token.
+    print(f"DamIT Crest desktop: {url}", flush=True)
     try:
         import webview
 
         try:
             webview.settings["ALLOW_DOWNLOADS"] = True  # belt and braces; exports use the Save dialog bridge
+            # A target=_blank / window.open link goes to the OS browser, never a new in-app window on another origin.
+            webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
         except Exception:
             pass
+        # pywebview's JS API binder uses new Function / eval; rewrite it so the CSP can stay
+        # script-src 'self' (no unsafe-eval). See webview_csp.py.
+        from .webview_csp import install_pywebview_csp_patches
+        install_pywebview_csp_patches(webview)
         api = Api(settings_file=SETTINGS_FILE)
-        api._window = webview.create_window(TITLE, url, js_api=api, width=1280, height=860, min_size=(760, 560))
-        webview.start(private_mode=False, storage_path=str(store))
+        api._window = webview.create_window(TITLE, open_url, js_api=api, width=1280, height=860, min_size=(760, 560))
+        # Re-arm the nav guard after every in-page load (the loaded event re-fires on each navigation).
+        api._window.events.loaded += lambda *a: api._window.evaluate_js(NAV_GUARD_JS)
+        start_kw: dict = {"private_mode": False, "storage_path": str(store)}
+        icon = logo_path()
+        if icon is not None:
+            start_kw["icon"] = str(icon)
+        webview.start(**start_kw)
     except Exception as e:  # no GUI backend: use the system browser (Linux on purpose; see browser_io.py)
         if not isinstance(e, ImportError):
-            print(f"DamIT Desk: no native window ({e}).")
-        print(f"DamIT Desk is running at {url}")
-        print("Your browser should open it. If it does not, open that address in a browser on this computer.")
-        print("Leave this terminal open while you use the desk; press Ctrl+C here to close it.")
-        sys.stdout.flush()
-        webbrowser.open(url)
+            print(f"DamIT Desk: no native window ({e}).", flush=True)
+        # The OS passes this address to the browser on its command line, which other local users may be able to
+        # list, so it carries a one-time launch code that expires, not the token (see LAUNCH_PATH).
+        link = launch_url(server.server_address[1], issue_launch_code())
+        print("DamIT Desk is opening in your browser with a one-time launch link.", flush=True)
+        print("Leave this terminal open while you use the desk; press Ctrl+C here to close it.", flush=True)
+        if not webbrowser.open(link):
+            # No browser could be started (e.g. over ssh). The terminal is the user's own; the link is single-use.
+            print(f"DamIT Desk: no browser started. Open this one-time link within {int(LAUNCH_CODE_TTL_S)} s: "
+                  f"{link}", flush=True)
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

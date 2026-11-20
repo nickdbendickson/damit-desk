@@ -1,11 +1,13 @@
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, Droplets, Plus, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
+
+import damitWordmark from "@/assets/damit-wordmark-light.png";
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
 import { locationProblem } from "@/lib/crest/guided";
 import { DEFAULT_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
 import { choiceKey, choiceText, classifyReceptors, receptorKey, reportLead } from "@/lib/crest/classify-receptors";
-import { crestApiHeaders } from "@/lib/crest/desktop-server";
+import { crestApiHeaders, hasDesktopServer } from "@/lib/crest/desktop-server";
 import { ClassificationPanel } from "@/components/crest/ClassificationPanel";
 import { lookupPads, padPoints, padsToRetry, resetFailedPads } from "@/lib/crest/nd911-pads";
 import { exportDamJson, exportHydrographCsv, generateLisfloodPackage } from "@/lib/crest/export";
@@ -62,6 +64,7 @@ import { saveText } from "@/lib/crest/save";
 import { demTieOffer, missingForNext, needsDemTie } from "@/lib/crest/nid-dams";
 import { onOutlineSaveChange, outlineSaveError } from "@/lib/crest/outline-store";
 import { activeDam, hydrateDesk, useDesk, useSaveStatus } from "@/lib/crest/store";
+import { DeskFiles } from "./DeskFiles";
 import type {
   BreachMethod,
   DamGeometry,
@@ -92,6 +95,11 @@ import { ensureDemSource } from "@/lib/crest/dem-source";
 import type { PointRole } from "./MapDraw";
 import { autoBreachPoint } from "@/lib/crest/breach-point";
 import { CREST_SNAP_M, deriveFromDem, nearRequest } from "@/lib/crest/batch";
+import { assumptions } from "@/lib/crest/settings";
+import { loadSettings, sharedNow } from "@/lib/crest/settings-store";
+import { CREST_VERSION } from "@/lib/crest/version";
+import { BreachAdvanced } from "./BreachAdvanced";
+import { SettingsPanel } from "./SettingsPanel";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -152,12 +160,11 @@ export function Desk() {
   const step = useDesk((s) => s.step);
   const setStep = useDesk((s) => s.setStep);
   const select = useDesk((s) => s.select);
-  const update = useDesk((s) => s.update);
   const add = useDesk((s) => s.add);
   const restore = useDesk((s) => s.restore);
-  const addDam = useDesk((s) => s.addDam);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<"desk" | "batch">("desk");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What "Open in desk" did (selected an existing record or added one), shown once over the desk.
   const [openNote, setOpenNote] = useState<string | null>(null);
   const saveBlocked = useSaveStatus((s) => s.blocked);
@@ -168,9 +175,11 @@ export function Desk() {
     setReady(true);
     // The desktop's saved local DEM (if any) becomes the terrain for every read on the desk.
     void ensureDemSource();
+    // The shared defaults a new record starts from: your defaults file (desktop) or this browser's copy (web).
+    void loadSettings();
   }, []);
 
-  const dam = activeDam({ dams, activeId, step, setStep, select, update, add, addDam, restore });
+  const dam = activeDam({ dams, activeId });
   const result = useMemo(() => analyze(dam), [dam]);
   useResultsSync(dam, result);
 
@@ -185,18 +194,23 @@ export function Desk() {
       ) : saveBlocked ? (
         <div className="border-b border-line bg-card px-4 py-2 text-sm text-amber" role="alert" data-testid="save-blocked">
           This desk is over your browser&rsquo;s storage limit, so your latest edits are no longer being saved.
-          Export your work and reload, or remove a dam&rsquo;s terrain layer to free space.
+          Use &ldquo;Save desk to file&rdquo; (under the dam list) to keep your work, then reload, or remove a
+          dam&rsquo;s terrain layer to free space.
         </div>
       ) : null}
       <header className="border-b border-line bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-sm bg-water text-card">
-              <Droplets className="size-5" aria-hidden="true" />
-            </span>
+            <img
+              src={damitWordmark}
+              alt="DaMiT"
+              height={32}
+              width={117}
+              className="h-8 w-auto shrink-0"
+            />
             <div>
               <p className="text-xs tracking-widest text-muted uppercase">Dam breach desk</p>
-              <h1 className="text-2xl leading-none">DamIT Desk</h1>
+              <h1 className="text-2xl leading-none">Desk</h1>
             </div>
           </div>
           <p className="max-w-xl text-sm text-muted">
@@ -216,9 +230,19 @@ export function Desk() {
                 {v === "desk" ? "One dam" : "Batch"}
               </button>
             ))}
+            <button
+              type="button"
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((o) => !o)}
+              data-testid="settings-toggle"
+              className={"h-11 rounded-sm border px-4 text-sm " + (settingsOpen ? "border-water bg-water text-card" : "border-line bg-card text-ink")}
+            >
+              Settings
+            </button>
           </div>
         </div>
       </header>
+      {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
 
       {view === "batch" ? (
         <main className="mx-auto w-full max-w-6xl min-w-0 px-4 py-4">
@@ -266,6 +290,7 @@ export function Desk() {
             })}
           </ul>
           <div className="hidden px-4 pb-4 lg:block">
+            <DeskFiles onNote={setOpenNote} />
             <button
               type="button"
               onClick={restore}
@@ -331,10 +356,13 @@ export function Desk() {
 
           <StepNav step={step} setStep={setStep} blocked={step === "record" ? missingForNext(dam) : []} />
 
+          <div className="mt-6 lg:hidden">
+            <DeskFiles onNote={setOpenNote} />
+          </div>
           <button
             type="button"
             onClick={restore}
-            className="mt-6 inline-flex h-11 items-center gap-2 text-sm text-muted lg:hidden"
+            className="inline-flex h-11 items-center gap-2 text-sm text-muted lg:hidden"
           >
             <RotateCcw className="size-4" aria-hidden="true" />
             Restore samples
@@ -611,6 +639,7 @@ function BreachStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <Stat k="Released volume" v={`${num(result.breach.volumeAcFt, 0)} ac-ft`} />
         </div>
       </div>
+      <BreachAdvanced dam={dam} result={result} />
       <div className="rounded-md border border-line bg-card p-4">
         <h3 className="text-lg">Outflow</h3>
         <HydroChart series={result.breach.series} />
@@ -1514,7 +1543,16 @@ const handoff = {
 };
 let handoffTimer = 0;
 
-type JobPath = "/api/screen" | "/api/model" | "/api/folder" | "/api/layers" | "/api/classify" | "/api/data" | "/api/pmp" | "/api/finder";
+type JobPath =
+  | "/api/screen"
+  | "/api/model"
+  | "/api/folder"
+  | "/api/layers"
+  | "/api/classify"
+  | "/api/check"
+  | "/api/data"
+  | "/api/pmp"
+  | "/api/finder";
 
 /** The algorithm ids the desktop server will call (GET /api/handoff): DamIT defaults or the user's overrides. */
 type HandoffInfo = { algorithms: Record<string, string>; sources: Record<string, string>; problems: string[]; cli: string | null };
@@ -1533,7 +1571,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
-    if (handoffInfo) return;
+    if (handoffInfo || !hasDesktopServer()) return;
     let live = true;
     fetch("/api/handoff", { headers: crestApiHeaders() })
       .then((r) => (r.ok ? r.json() : null))
@@ -1598,7 +1636,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           body: JSON.stringify({
             // Piping when no failure mode was chosen; the server fills piping as well (handoff.resolved_failure_mode).
             dam: handoffDam(dam),
-            analysis: result,
+            // With what this record used of the shared defaults, for the dam.json the hand-off writes.
+            analysis: { ...result, assumptions: assumptions(dam, sharedNow(), CREST_VERSION, result.breach.startPool) },
             work: handoff.work,
             dem: handoff.dem,
             depth: path === "/api/classify" ? handoff.depth : undefined,
@@ -1611,7 +1650,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
             receptors,
             model: handoff.model,
             source: handoff.source,
-            files: path === "/api/layers" ? undefined : files,
+            files: path === "/api/layers" || path === "/api/check" ? undefined : files,
           }),
         });
       } catch {
@@ -1708,10 +1747,11 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         the real structures, roads and rail lines for the depth raster&apos;s area (the DamIT data folder, else USACE NSI,
         FHWA HPMS and the national rail network online) plus the receptors you mapped. A layer it cannot check makes the
         class INCOMPLETE, shown as a lower bound. The flood model runs {algs.rundam} for this dam only. A missing
-        algorithm, a missing DEM or depth raster, or a preflight FAIL stops there. The log shows the plugin&apos;s output
-        as it runs. Cancel stops QGIS and what it started, for every button; DAMIT_SCREENING_TIMEOUT_S limits screening
-        and DAMIT_PLUGIN_TIMEOUT_S the Download layers, Atlas 14 and Find fills buttons (3 h, 15 min, 2 h by default).
-        The result is a suggested class, not an official one.
+        algorithm, a missing DEM or depth raster, or a preflight FAIL stops there. Check QGIS hand-off tests the link to
+        the plugins first, without running a dam. The log shows the plugin&apos;s output as it runs. Cancel stops QGIS
+        and what it started, for every button; DAMIT_SCREENING_TIMEOUT_S limits screening and DAMIT_PLUGIN_TIMEOUT_S the
+        Download layers, Atlas 14 and Find fills buttons (3 h, 15 min, 2 h by default). The result is a suggested class,
+        not an official one.
       </p>
       <p className="mt-1 text-xs text-muted" data-testid="handoff-algorithms">
         Algorithms: {Object.entries(algs)
@@ -1861,6 +1901,15 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         </label>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="inline-flex h-10 items-center rounded-sm border border-water bg-paper px-3 text-sm text-water disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={handoff.busy}
+          onClick={() => void start("/api/check")}
+          title="Checks that qgis_process is found and that the preflight, chain, flood model and classify algorithms are in its QGIS profile. Runs no dam and writes nothing."
+        >
+          Check QGIS hand-off
+        </button>
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/layers")}>
           Get layers
         </button>
@@ -2099,7 +2148,7 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
         <button type="button" className={btn} onClick={() => void save(`${root}_hydrograph.csv`, exportHydrographCsv(result.breach.series), "text/csv")}>
           Hydrograph CSV
         </button>
-        <button type="button" className={btn} onClick={() => void save(`${root}_dam.json`, exportDamJson(dam, result), "application/json")}>
+        <button type="button" className={btn} onClick={() => void save(`${root}_dam.json`, exportDamJson(dam, result, sharedNow()), "application/json")}>
           dam.json
         </button>
         {(["par", "bci", "bdy"] as const).map((ext) => (

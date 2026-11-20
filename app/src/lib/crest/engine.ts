@@ -3,7 +3,7 @@ import { type AoiExtent, aoiExtent, downstreamDirection, fmtAc, fmtKm, hasAoi, r
 import { isGenericSeed } from "./samples.ts";
 import { vertconShiftFt } from "./vertcon.ts";
 import { warning, warningTexts, type Warning } from "./warnings.ts";
-import { ACFT, ACRE, CFS, FT, froehlich1995Peak, froehlich2008, routedHydrograph, thin } from "./breach.ts";
+import { ACFT, ACRE, CFS, FT, froehlich1995Peak, froehlich2008, Reservoir, routedHydrograph, thin } from "./breach.ts";
 import type {
   Analysis,
   BreachMethod,
@@ -13,6 +13,7 @@ import type {
   GeoJSONFeature,
   ReceptorSeed,
   ScreenLevel,
+  StartPool,
 } from "./types.ts";
 
 const TIE_BAND = 100;
@@ -24,6 +25,9 @@ const TIE_BAND = 100;
  * schematic valley (stations, half-width, depth), the receptor depth/velocity/arrival, the datum rules or the ACER
  * ranking. A wording-only change does not move it. Date of the last numeric change, yyyy.mm.dd.
  */
+/** A routed breach peak past this multiple of the Froehlich (1995) check gets a note (see analyze). */
+export const BREACH_CHECK_RATIO = 1.5;
+
 export const ENGINE_VERSION = "crest-desk-engine 2026.11.12";
 
 export const STEPS = [
@@ -239,6 +243,9 @@ function reviewMissingElevations(dam: DamRecord, missing: string): Analysis {
       timeHr: Number.NaN,
       capped: false,
       headFt: Number.NaN,
+      startPool: "top",
+      startPoolNavdFt: Number.NaN,
+      startPoolLabel: START_POOL_LABEL.top,
       bottomWidthFt: Number.NaN,
       sideSlope: Number.NaN,
       empiricalPeakCfs: Number.NaN,
@@ -274,6 +281,51 @@ function reviewMissingElevations(dam: DamRecord, missing: string): Analysis {
       judgment: [],
     },
   };
+}
+
+export const START_POOL_LABEL: Record<StartPool, string> = {
+  top: "top of dam",
+  normal: "normal pool",
+  elevation: "entered elevation",
+};
+
+/** The least water over the breach bottom a starting pool must have to be used (ft). */
+const START_POOL_MIN_HEAD_FT = 0.5;
+
+/**
+ * The pool level the breach starts from (m NAVD88). "top" (the default, ND 5.1.1 sunny day) is the top of dam.
+ * "normal" is the record's tied normal pool; "elevation" is DamRecord.startPoolFt, tied the same way as the other
+ * stated elevations. A choice that cannot be used falls back to the top of dam with a warning, so a half-typed
+ * elevation never gives a silent, smaller breach.
+ */
+function startingPool(
+  dam: DamRecord,
+  pool: Tied,
+  g: { topM: number; breachBottomM: number; offsetFt: number | null; crestNavd: number; localRecord: boolean },
+): { basis: StartPool; wse0M: number; label: string; warnings: string[] } {
+  const top = { basis: "top" as const, wse0M: g.topM, label: START_POOL_LABEL.top };
+  const choice: StartPool = dam.startPool === "normal" || dam.startPool === "elevation" ? dam.startPool : "top";
+  if (choice === "top") return { ...top, warnings: [] };
+  const name = choice === "normal" ? "normal pool" : "entered starting pool";
+  const fallback = (why: string) => ({ ...top, warnings: [`Starting pool: ${why} The breach starts at the top of dam instead.`] });
+  let tied: Tied;
+  if (choice === "normal") {
+    if (!Number.isFinite(dam.normalPoolFt)) return fallback("the record has no normal pool elevation.");
+    tied = pool;
+  } else {
+    const stated = dam.startPoolFt ?? Number.NaN;
+    if (!Number.isFinite(stated)) return fallback("no elevation is entered.");
+    tied = tieValue("Starting pool", stated, g.offsetFt, g.crestNavd, g.localRecord);
+  }
+  if (tied.navd == null) return fallback(`the ${name} could not be tied to NAVD88${tied.warning && choice === "elevation" ? ` (${tied.warning})` : ""}.`);
+  const wse0M = tied.navd * FT;
+  if (wse0M > g.topM + 1e-9)
+    return fallback(`the ${name} ${fmtFt(tied.navd)} ft NAVD88 is above the top of dam ${fmtFt(g.topM / FT)} ft.`);
+  if (wse0M < g.breachBottomM + START_POOL_MIN_HEAD_FT * FT)
+    return fallback(`the ${name} ${fmtFt(tied.navd)} ft NAVD88 is not above the breach bottom ${fmtFt(g.breachBottomM / FT)} ft, so there is nothing to release.`);
+  // A pool at the top of dam is the default case: same numbers, same wording.
+  if (g.topM - wse0M < 1e-9) return { ...top, warnings: [] };
+  return { basis: choice, wse0M, label: START_POOL_LABEL[choice], warnings: [] };
 }
 
 export function analyze(dam: DamRecord): Analysis {
@@ -371,19 +423,28 @@ export function analyze(dam: DamRecord): Analysis {
   if (bed.navd != null && bed.navd * FT > resBottomM && bed.navd * FT < topM - FT) {
     breachBottomM = bed.navd * FT;
   }
-  const wse0M = topM; // ND 5.1.1 sunny day: pool at the top of dam
+  // Starting pool. ND 5.1.1 sunny day: the pool at the top of dam, unless the record asks for the normal pool or a typed
+  // elevation (DamRecord.startPool). A pool that cannot be used (missing, untied, at or below the breach bottom, above
+  // the top of dam) falls back to the top of dam and says so. The default path is untouched: wse0M = topM, Vw = storage.
+  const sa = finite(dam.surfaceAreaAc ?? NaN, NaN);
+  const saTopM2 = sa > 0 ? sa * ACRE : null;
+  const start = startingPool(dam, pool, { topM, breachBottomM, offsetFt, crestNavd, localRecord });
+  for (const w of start.warnings) warnings.push(warning("W-V1", w));
+  const wse0M = start.wse0M;
   const headM = wse0M - breachBottomM;
   const hbM = topM - breachBottomM;
+  // Vw in the breach equations: the storage at the starting pool (the maximum storage at the top of dam).
+  const vwM3 = start.basis === "top" ? volumeM3 : new Reservoir(resBottomM, topM, volumeM3, saTopM2).volume(wse0M);
   const notes: string[] = [];
   const mode = dam.failureMode === "overtopping" ? "overtopping" : "piping";
-  const fr = froehlich2008(volumeM3, hbM, mode);
+  const fr = froehlich2008(vwM3, hbM, mode);
   let widthFt = fr.bAvg / FT;
   let timeHr = fr.tf / 3600;
   let z: number = fr.z;
   let capped = false;
 
   if (dam.method === "macdonald") {
-    const m = macdonald(volumeM3, headM, heightFt, lengthFt);
+    const m = macdonald(vwM3, headM, heightFt, lengthFt);
     widthFt = m.widthFt;
     timeHr = m.timeHr;
     capped = m.capped;
@@ -408,14 +469,13 @@ export function analyze(dam: DamRecord): Analysis {
   }
   if (capped) notes.push("Breach width was capped at the dam length.");
 
-  const sa = finite(dam.surfaceAreaAc ?? NaN, NaN);
   const routed = routedHydrograph({
     topM,
     resBottomM,
     breachBottomM,
     wse0M,
     storageTopM3: volumeM3,
-    surfaceAreaTopM2: sa > 0 ? sa * ACRE : null,
+    surfaceAreaTopM2: saTopM2,
     bAvgM: widthFt * FT,
     tfS: Math.max(timeHr, 0.05) * 3600,
     z,
@@ -429,9 +489,20 @@ export function analyze(dam: DamRecord): Analysis {
     "Outflow is routed through the opening (Runner core/breach.py): a trapezoidal weir, Q = 3.1·b·h^1.5 + 2.45·z·h^2.5 (US units), whose crest lowers from the top of dam to the breach bottom and whose bottom width grows linearly over the formation time, with the pool drawing down by level-pool routing until it is drained.",
   );
   notes.push(
-    `Head on the breach ${fmtFt(headM / FT)} ft (top of dam to breach bottom). The Froehlich (1995) peak check uses that head, not the dam height.`,
+    start.basis === "top"
+      ? `Head on the breach ${fmtFt(headM / FT)} ft (top of dam to breach bottom). The Froehlich (1995) peak check uses that head, not the dam height.`
+      : `Starting pool ${fmtFt(wse0M / FT)} ft NAVD88 (${start.label}), ${fmtFt((topM - wse0M) / FT)} ft below the top of dam. Head on the breach ${fmtFt(headM / FT)} ft (starting pool to breach bottom); the breach equations and the Froehlich (1995) check use the storage at that pool, ${fmtFt(vwM3 / ACFT)} ac-ft of ${fmtFt(volumeM3 / ACFT)} ac-ft.`,
   );
   notes.push(...routed.notes);
+  // The routed peak against the Froehlich (1995) regression (Nick, 2026-11-18). Level-pool routing draws the whole
+  // reservoir down together, as if the water at the far end reached the breach at once. A long, narrow reservoir
+  // cannot feed the opening that fast, so its real peak is lower: Edenville (2020) at its 680.1 ft failure pool routes
+  // 274,000 cfs here against 152,700 cfs in the ASCE 2-D reconstruction and 135,000 cfs from Froehlich (1995). Most
+  // dams route within 1.0–1.35× the regression; past BREACH_CHECK_RATIO the note says so, and the result is unchanged.
+  if (empiricalPeakCfs > 0 && peakCfs > BREACH_CHECK_RATIO * empiricalPeakCfs)
+    notes.push(
+      `The routed peak (${Math.round(peakCfs).toLocaleString("en-US")} cfs) is ${(peakCfs / empiricalPeakCfs).toFixed(1)}× the Froehlich (1995) check (${Math.round(empiricalPeakCfs).toLocaleString("en-US")} cfs). The routing draws the whole pool down at once; a long or narrow reservoir cannot feed the breach that fast, so its peak may be nearer the check. Edenville (2020): routed 274,000 cfs, 2-D reconstruction 152,700 cfs, check 135,000 cfs.`,
+    );
 
   // Schematic valley. L0 sets the decay scale; the reach runs until the desk depth falls below
   // the 0.1 ft wet threshold (or the reach the user sets), up to MAX_REACH_KM.
@@ -776,6 +847,9 @@ export function analyze(dam: DamRecord): Analysis {
       timeHr,
       capped,
       headFt: headM / FT,
+      startPool: start.basis,
+      startPoolNavdFt: wse0M / FT,
+      startPoolLabel: start.label,
       bottomWidthFt: routed.bottomWidthM / FT,
       sideSlope: z,
       empiricalPeakCfs,

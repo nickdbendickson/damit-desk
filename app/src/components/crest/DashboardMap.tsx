@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { LayersControl, MapContainer, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
-import { extentLine } from "./extent-layer";
+import { extentLine, openEdgeLine } from "./extent-layer";
 import { layerKey, mountFloodLayer } from "./flood-layer";
 import "leaflet/dist/leaflet.css";
 import { basemaps } from "@/lib/crest/basemap";
@@ -9,6 +9,7 @@ import { HILLSHADE_URL } from "@/lib/crest/dashboard";
 import type { FloodStrip } from "@/lib/crest/floodstrip";
 import { ND_CENTER } from "@/lib/crest/mapview";
 import type { Bounds, Overlay } from "./ResultsMap";
+import { escHtml } from "@/lib/crest/esc-html";
 
 const LAYERS = basemaps(import.meta.env);
 const PANE = "crest-dash";
@@ -92,9 +93,11 @@ function DepthLayer({ depth }: { depth: FloodStrip | null }) {
       }),
     });
     const edge = extentLine(fc, PANE)?.addTo(map) ?? null;
+    const open = openEdgeLine(fc, PANE)?.addTo(map) ?? null;
     return () => {
       mounted.remove();
       edge?.remove();
+      open?.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the layer's content
   }, [map, key]);
@@ -149,7 +152,7 @@ export function DashboardMap({ depth, points, arrival, hillshade, overlays, fit 
               fillColor: p.color,
               fillOpacity: p.ring ? 0.15 : 0.95,
             });
-            m.bindTooltip(p.label ?? p.name, { direction: "top" });
+            m.bindTooltip(escHtml(p.label ?? p.name), { direction: "top" });
             g.addLayer(m);
           }
           return g;

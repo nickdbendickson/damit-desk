@@ -25,7 +25,7 @@ import { csvCell } from "./csv.ts";
 import { bundleAgeLine, deskBundles } from "./data-provenance.ts";
 import { analyze, ENGINE_VERSION } from "./engine.ts";
 import { floodStrip } from "./floodstrip.ts";
-import { buildInundationReach, type InundationResult } from "./inundation.ts";
+import { buildInundationReach, type InundationReachOptions, type InundationResult } from "./inundation.ts";
 import { makeInundationPool, type InundationPool } from "./inundation-client.ts";
 import { fetchNd911, nd911AutoPatch, nd911State } from "./nd911.ts";
 import { lookupPads } from "./nd911-pads.ts";
@@ -33,6 +33,8 @@ import { heightFor, prefillPatch, storageFor, type NidData } from "./nid-dams.ts
 import { demRequest, demSourceLabel, fetchDem, lookupArea, outlineInputs, outlineState, traceChannel, type DemGrid, type DemRequest } from "./outline.ts";
 import { withoutOutline } from "./outline-store.ts";
 import { blankDam } from "./samples.ts";
+import { applyDefaults } from "./settings.ts";
+import { sharedNow } from "./settings-store.ts";
 import { RECOMMENDATION_LABEL, RECOMMENDATION_ORDER, triageDam, type Triage } from "./triage.ts";
 import type { DamRecord, GeoJSONFeature, Provenance, ScreenLevel } from "./types.ts";
 import { CREST_VERSION } from "./version.ts";
@@ -459,6 +461,14 @@ export type BatchDeps = {
   nearCellM?: number;
   /** "local DEM" when fetchDem reads a local raster; labels the crest source. */
   demLabel?: CrestFrom;
+  /**
+   * Applied to each derived record before it is analysed: the shared defaults (settings.ts applyDefaults), so a batch
+   * starts every structure from the same starting pool, failure mode, breach equation and Manning's n as a new record
+   * on the desk. Absent = Crest's built-in values.
+   */
+  prepare?: (dam: DamRecord) => DamRecord;
+  /** Mapped flowlines through lakes for the trace (flowlines.ts); undefined = the build's own default. */
+  flowlines?: InundationReachOptions["flowlines"];
   onStatus?: (text: string) => void;
   yieldFn?: () => Promise<void>;
   /**
@@ -517,7 +527,7 @@ export async function runStructure(s: Structure, deps: BatchDeps = {}): Promise<
     const near = await dem(nearRequest(s.lon!, s.lat!, 0.6, deps.nearCellM ?? (local ? 2 : 10)));
     const rec = deriveRecord(s, near, deps.nd, deps.demLabel ?? (local ? "local DEM" : "3DEP"));
     if (!rec.ok) return { row: emptyRow(s, "needs-data", rec.reason, secs()), dam: null };
-    let dam = rec.dam;
+    let dam = deps.prepare ? deps.prepare(rec.dam) : rec.dam;
     // Second pass: aim the synthesized line down the traced channel (aimAlongChannel).
     const aimed = await aimAlongChannel(dam, rec.derived.u, dem).catch(() => ({ dam, aim: null }));
     dam = aimed.dam;
@@ -530,7 +540,7 @@ export async function runStructure(s: Structure, deps: BatchDeps = {}): Promise<
     const onStatus = (t: string) => deps.onStatus?.(`${s.id}: ${t}`);
     const built = deps.build
       ? await deps.build(dam, result, { onStatus })
-      : await buildInundationReach(dam, result, { fetch: dem, yieldFn: deps.yieldFn, onStatus });
+      : await buildInundationReach(dam, result, { fetch: dem, yieldFn: deps.yieldFn, onStatus, ...(deps.flowlines !== undefined ? { flowlines: deps.flowlines } : {}) });
     if (built.ok) dam = { ...dam, outline: built.cache };
 
     // 911 points inside the layer (or the strip when no layer could be built), added as receptors like a picked dam.
@@ -661,6 +671,8 @@ export async function runBatchInBrowser(list: Structure[], opts: Omit<BatchOptio
   const pool = await makeInundationPool(undefined, opts.fetchDem);
   try {
     return await runBatch(list, {
+      // The desk's shared defaults (Settings), read once when the batch starts.
+      prepare: ((shared) => (d: DamRecord) => applyDefaults(d, shared))(sharedNow().values),
       ...opts,
       pool,
       concurrency: opts.concurrency ?? (pool ? pool.size : 2),

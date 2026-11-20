@@ -8,12 +8,19 @@ The repository README.md has the full guide; this is the short version.
 2. Open a terminal in that folder and start the desk. Leave it open.
      bin/damit-desk            (Linux, Mac)
      bin\damit-desk.cmd        (Windows)
-   Mac and Windows open a window. Linux opens your browser; the terminal
-   prints the address (http://127.0.0.1:47241/index.html) in case it does
-   not. Ctrl+C in the terminal closes the desk.
+   Mac and Windows open a window. Linux opens your browser through a
+   one-time launch link (valid 2 minutes, used once). If no browser starts,
+   the link is printed in the terminal: open it yourself. Ctrl+C in the
+   terminal closes the desk.
 3. Point the desk at the DamIT plugins: it finds ~/dam-suite/qgis-process-damit.sh
    from the suite installer by itself. After install-all.sh --sandbox DIR, start
    it with QGIS_PROCESS=DIR/qgis-process-damit.sh bin/damit-desk.
+
+The address printed at start (http://127.0.0.1:47241/index.html) has no
+key in it: typed into a browser it shows the desk, but the buttons that
+use this computer (layers, dam folder, screening, model, classify) are
+refused. Use the window. If you closed the browser tab or the link
+expired, stop the desk (Ctrl+C) and start it again.
 
 Report step — DamIT plugins in QGIS
 -----------------------------------
