@@ -51,8 +51,8 @@ export function ServerFilePicker() {
         <h3 className="text-lg">{req.title}</h3>
         <p className="mt-1 text-xs text-muted">
           {req.mode === "dem"
-            ? "Files on this computer, listed by the DamIT Desk server: folders and DEM files (.vrt, .tif, .tiff, .img). A VRT keeps reading its tiles where they are."
-            : "Folders on this computer, listed by the DamIT Desk server."}
+            ? "Folders and DEM files (.vrt, .tif, .tiff, .img) the DamIT Desk server may show: the work folder, exports, the DamIT data folder and DEM folders. A VRT keeps reading its tiles where they are. For a DEM elsewhere, add its folder to DAMIT_DEM_ROOTS and restart the desk."
+            : "Folders inside the DamIT Desk work folder (DAMIT_WORK_ROOTS adds others)."}
         </p>
         <form
           className="mt-2 flex gap-2"
@@ -69,9 +69,18 @@ export function ServerFilePicker() {
             Up
           </button>
           <button type="button" className={btn} onClick={() => void go(list?.home ?? null, req.mode)}>
-            Home
+            Work folder
           </button>
         </form>
+        {list?.roots && list.roots.length > 1 ? (
+          <div className="mt-2 flex flex-wrap gap-1 text-xs" data-testid="server-picker-roots">
+            {list.roots.map((r) => (
+              <button key={r} type="button" className="rounded-sm border border-line bg-paper px-2 py-0.5 hover:bg-sand" title={r} onClick={() => void go(r, req.mode)}>
+                {r.split(/[\\/]/).filter(Boolean).pop() || r}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {err ? <p className="mt-2 text-sm text-red-700">{err}</p> : null}
         <ul className="mt-2 min-h-40 flex-1 overflow-auto rounded-sm border border-line bg-paper text-sm" data-testid="server-picker-list">
           {list?.entries.length === 0 ? <li className="px-3 py-2 text-muted">{req.mode === "dem" ? "No folders or DEM files here." : "No folders here."}</li> : null}

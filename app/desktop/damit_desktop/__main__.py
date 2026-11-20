@@ -595,7 +595,8 @@ class _Handler(SimpleHTTPRequestHandler):
         """Browser mode (browser_io.py): list a folder for the desk's file chooser, the chosen DEM, the exports folder."""
         if path == "/api/fs/list":
             mode = (query.get("mode") or ["dem"])[0]
-            self._reply(lambda: browser_io.list_dir((query.get("dir") or [""])[0] or None, "folder" if mode == "folder" else "dem"))
+            self._reply(lambda: browser_io.list_dir((query.get("dir") or [""])[0] or None, "folder" if mode == "folder" else "dem",
+                                                     SETTINGS_FILE))
         elif path == "/api/dem/choice":
             self._reply(lambda: browser_io.dem_state(SETTINGS_FILE))
         else:

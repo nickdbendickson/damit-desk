@@ -4,7 +4,7 @@
  * (desktop/damit_desktop/browser_io.py, GET /api/fs/list) and ServerFilePicker.tsx shows them. In the native window
  * (pywebview) the system's Open and Save dialogs are used instead and none of this runs.
  */
-import { crestApiHeaders } from "./desktop-server.ts";
+import { crestApiHeaders, desktopToken } from "./desktop-server.ts";
 
 export type PickMode = "dem" | "folder";
 export type PickRequest = { mode: PickMode; title: string; start?: string | null };
@@ -17,10 +17,11 @@ export function setServerPicker(f: Opener | null): void {
   opener = f;
 }
 
-/** True when the page came from the desk server (its per-launch token is in the page). */
+/** True when the page came from the desk server: it was opened with the per-launch token (in the address fragment,
+ * then sessionStorage; see desktop-server.ts). The served page itself never carries the token. */
 export function hasDeskServer(): boolean {
   if (typeof document === "undefined") return false;
-  return !!document.querySelector('meta[name="damit-token"]')?.getAttribute("content");
+  return !!desktopToken();
 }
 
 /** Ask for a DEM file or a folder on this computer; null when cancelled or when there is no chooser. */
@@ -28,7 +29,9 @@ export function pickOnServer(req: PickRequest): Promise<string | null> {
   return opener ? opener(req) : Promise.resolve(null);
 }
 
-export type Listing = { dir: string; parent: string | null; home: string; entries: { name: string; path: string; dir: boolean }[] };
+/** One folder as the desk server lists it. `roots` are the only folders it shows (the work folder, exports, the data
+ * folder, DEM folders: browser_io.py read_roots); `home` is the first of them. */
+export type Listing = { dir: string; parent: string | null; home: string; roots?: string[]; entries: { name: string; path: string; dir: boolean }[] };
 
 export async function listOnServer(dir: string | null, mode: PickMode): Promise<Listing> {
   const q = new URLSearchParams({ mode, ...(dir ? { dir } : {}) });

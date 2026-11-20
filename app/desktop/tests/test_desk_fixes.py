@@ -398,9 +398,13 @@ class FinderKnownDamsTests(Base):
 class BrowserIoTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
+        self.work = self.root / "work"
+        self.work.mkdir()
         self.settings = self.root / "settings.json"
-        self.env = mock.patch.dict(os.environ, {"DAMIT_WORK": str(self.root / "work"), "HOME": str(self.root)})
+        self.env = mock.patch.dict(os.environ, {"DAMIT_WORK": str(self.work), "HOME": str(self.root),
+                                                "DAMIT_DATA": "", "DAMIT_DEM": "", "DAMIT_DEM_ROOTS": "",
+                                                "DAMIT_WORK_ROOTS": ""})
         self.env.start()
 
     def tearDown(self):
@@ -408,45 +412,125 @@ class BrowserIoTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_list_shows_folders_and_dem_files_only(self):
-        (self.root / "dems").mkdir()
-        (self.root / "dems" / "a.vrt").write_text("x")
-        (self.root / "dems" / "notes.txt").write_text("x")
-        (self.root / "dems" / ".hidden.tif").write_text("x")
-        (self.root / "dems" / "sub").mkdir()
-        listing = browser_io.list_dir(str(self.root / "dems"), "dem")
+        dems = self.work / "dems"
+        dems.mkdir()
+        (dems / "a.vrt").write_text("x")
+        (dems / "notes.txt").write_text("x")
+        (dems / ".hidden.tif").write_text("x")
+        (dems / "sub").mkdir()
+        listing = browser_io.list_dir(str(dems), "dem", self.settings)
         self.assertEqual([(e["name"], e["dir"]) for e in listing["entries"]], [("sub", True), ("a.vrt", False)])
-        self.assertEqual(listing["parent"], str(self.root.resolve()))
-        folders = browser_io.list_dir(str(self.root / "dems"), "folder")
+        self.assertEqual(listing["parent"], str(self.work))
+        folders = browser_io.list_dir(str(dems), "folder", self.settings)
         self.assertEqual([e["name"] for e in folders["entries"]], ["sub"])
         with self.assertRaises(browser_io.BrowserIOError):
-            browser_io.list_dir(str(self.root / "nope"))
+            browser_io.list_dir(str(self.work / "nope"), "dem", self.settings)
+
+    def test_list_starts_in_the_work_folder_and_stops_at_its_roots(self):
+        listing = browser_io.list_dir(None, "dem", self.settings)
+        self.assertEqual(listing["dir"], str(self.work))
+        self.assertIsNone(listing["parent"], "no Up out of the work folder")
+        self.assertIn(str(self.work), listing["roots"])
+        for outside in (str(self.root), "/", str(self.work / ".." / ".."), str(self.work) + "/../"):
+            with self.subTest(outside=outside), self.assertRaises(browser_io.BrowserIOError):
+                browser_io.list_dir(outside, "dem", self.settings)
+
+    @unittest.skipIf(os.name == "nt", "symlinks need privileges on Windows")
+    def test_a_symlink_out_of_the_roots_is_neither_listed_nor_followed(self):
+        secret = self.root / "secret"
+        secret.mkdir()
+        (secret / "private.tif").write_text("x")
+        (self.work / "escape").symlink_to(secret, target_is_directory=True)
+        (self.work / "escape.tif").symlink_to(secret / "private.tif")
+        (self.work / "inside").mkdir()
+        (self.work / "ok.tif").symlink_to(self.work / "inside")
+        names = [e["name"] for e in browser_io.list_dir(None, "dem", self.settings)["entries"]]
+        self.assertNotIn("escape", names)
+        self.assertNotIn("escape.tif", names)
+        self.assertIn("inside", names)
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.list_dir(str(self.work / "escape"), "dem", self.settings)
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.choose_dem(self.settings, str(self.work / "escape.tif"))
 
     def test_choose_dem_is_the_native_pickers_setting(self):
         from damit_desktop import localdem
 
-        dem = self.root / "Cass 10m.vrt"
+        dem = self.work / "Cass 10m.vrt"
         dem.write_text("x")
         out = browser_io.choose_dem(self.settings, str(dem))
         self.assertEqual(out["path"], str(dem))
         self.assertEqual(localdem.read_dem_path(self.settings), str(dem))
-        for bad in ("", "relative.tif", str(self.root / "missing.tif"), str(self.settings)):
+        for bad in ("", "relative.tif", str(self.work / "missing.tif"), str(self.settings)):
             with self.assertRaises(browser_io.BrowserIOError):
                 browser_io.choose_dem(self.settings, bad)
         browser_io.clear_dem(self.settings)
         self.assertIsNone(localdem.read_dem_path(self.settings))
 
+    def test_a_dem_outside_needs_dem_roots(self):
+        other = self.root / "dems"
+        other.mkdir()
+        dem = other / "cass.vrt"
+        dem.write_text("x")
+        with self.assertRaises(browser_io.BrowserIOError) as cm:
+            browser_io.choose_dem(self.settings, str(dem))
+        self.assertIn("DAMIT_DEM_ROOTS", str(cm.exception))
+        with mock.patch.dict(os.environ, {"DAMIT_DEM_ROOTS": str(other)}):
+            self.assertEqual(browser_io.choose_dem(self.settings, str(dem))["path"], str(dem))
+            self.assertIn(str(other), browser_io.list_dir(None, "dem", self.settings)["roots"])
+        # The chosen DEM's folder stays readable (the picker opens there next time).
+        self.assertIn(other, browser_io.read_roots(self.settings))
+
     def test_save_goes_to_the_exports_folder_and_never_overwrites(self):
         first = browser_io.save_export(self.settings, "../../report.csv", b"a,b\n")
         second = browser_io.save_export(self.settings, "report.csv", b"c,d\n")
-        self.assertEqual(first, self.root / "work" / "exports" / "report.csv")
+        self.assertEqual(first, self.work / "exports" / "report.csv")
         self.assertEqual(second.name, "report (2).csv")
         self.assertEqual(first.read_bytes(), b"a,b\n")
-        other = self.root / "elsewhere"
+        other = self.work / "elsewhere"
         other.mkdir()
         browser_io.set_export_dir(self.settings, str(other))
-        self.assertEqual(browser_io.save_export(self.settings, "x.json", b"{}").parent, other.resolve())
+        self.assertEqual(browser_io.save_export(self.settings, "x.json", b"{}").parent, other)
         with self.assertRaises(browser_io.BrowserIOError):
-            browser_io.set_export_dir(self.settings, str(self.root / "missing"))
+            browser_io.set_export_dir(self.settings, str(self.work / "missing"))
+
+    def test_file_names_cannot_name_a_folder(self):
+        for name, want in (("..\\..\\evil.csv", "evil.csv"), ("/etc/passwd", "passwd"), ("..", "damit_export.txt"),
+                           ("a\x00b:c?.txt", "a_b_c_.txt"), (".bashrc", "bashrc"), ("", "damit_export.txt")):
+            with self.subTest(name=name):
+                self.assertEqual(browser_io.safe_name(name), want)
+                saved = browser_io.save_export(self.settings, name, b"x")
+                self.assertEqual(saved.parent, self.work / "exports")
+        self.assertFalse((self.root / "evil.csv").exists())
+
+    def test_exports_must_stay_in_the_work_folder(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.set_export_dir(self.settings, str(outside))
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.set_export_dir(self.settings, str(self.work / ".." / "outside"))
+        # A settings file edited by hand to point outside is ignored: Save falls back to <work>/exports.
+        self.settings.write_text(json.dumps({"export_dir": str(outside)}))
+        self.assertEqual(browser_io.save_export(self.settings, "a.txt", b"x").parent, self.work / "exports")
+        self.assertEqual(list(outside.iterdir()), [])
+
+    @unittest.skipIf(os.name == "nt", "symlinks need privileges on Windows")
+    def test_save_does_not_follow_a_symlink_out(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.work / "exports").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.save_export(self.settings, "a.txt", b"x")
+        self.assertEqual(list(outside.iterdir()), [])
+        (self.work / "exports").unlink()
+        (self.work / "exports").mkdir()
+        victim = self.root / "victim.txt"
+        victim.write_text("keep")
+        (self.work / "exports" / "b.txt.part").symlink_to(victim)
+        with self.assertRaises(browser_io.BrowserIOError):
+            browser_io.save_export(self.settings, "b.txt", b"overwrite")
+        self.assertEqual(victim.read_text(), "keep")
 
 
 class BrowserApiTests(unittest.TestCase):
@@ -458,8 +542,10 @@ class BrowserApiTests(unittest.TestCase):
 
         cls.m = m
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.root = Path(cls.tmp.name)
-        cls.env = mock.patch.dict(os.environ, {"HOME": str(cls.root), "DAMIT_WORK": str(cls.root / "work")})
+        cls.root = Path(cls.tmp.name).resolve()
+        cls.env = mock.patch.dict(os.environ, {"HOME": str(cls.root), "DAMIT_WORK": str(cls.root / "work"),
+                                               "DAMIT_DATA": "", "DAMIT_DEM": "", "DAMIT_DEM_ROOTS": "",
+                                               "DAMIT_WORK_ROOTS": ""})
         cls.env.start()
         cls.saved = m.SETTINGS_FILE
         m.SETTINGS_FILE = cls.root / "settings.json"
@@ -493,10 +579,32 @@ class BrowserApiTests(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/fs/list", token=False)[0], 403)
         self.assertEqual(self.req("POST", "/api/save", {"name": "a.txt", "text": "x"}, token=False)[0], 403)
 
+    def test_page_has_no_token_and_outside_folders_are_refused(self):
+        import http.client
+        from urllib.parse import quote
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", "/index.html", headers={"Host": f"127.0.0.1:{self.port}"})
+        page = conn.getresponse().read()
+        conn.close()
+        self.assertNotIn(self.m.API_TOKEN.encode(), page)
+        for bad in ("/", str(self.root), str(self.root / "work" / ".." / "..")):
+            with self.subTest(dir=bad):
+                status, body = self.req("GET", f"/api/fs/list?dir={quote(bad)}&mode=dem")
+                self.assertEqual(status, 400, body)
+        secret = self.root / "secret.tif"
+        secret.write_bytes(b"x")
+        self.assertEqual(self.req("POST", "/api/dem/choose", {"path": str(secret)})[0], 400)
+        self.assertEqual(self.req("POST", "/api/export_dir", {"path": str(self.root)})[0], 400)
+        status, saved = self.req("POST", "/api/save", {"name": "../../../escape.txt", "text": "x"})
+        self.assertEqual(status, 200)
+        self.assertEqual(Path(saved["saved"]).parent, (self.root / "work" / "exports").resolve())
+
     def test_pick_a_dem_and_save_through_the_server(self):
-        dem = self.root / "dem.tif"
+        (self.root / "work").mkdir(exist_ok=True)
+        dem = self.root / "work" / "dem.tif"
         dem.write_bytes(b"x")
-        status, listing = self.req("GET", f"/api/fs/list?dir={self.root}&mode=dem")
+        status, listing = self.req("GET", f"/api/fs/list?dir={self.root / 'work'}&mode=dem")
         self.assertEqual(status, 200)
         self.assertIn("dem.tif", [e["name"] for e in listing["entries"]])
         status, chosen = self.req("POST", "/api/dem/choose", {"path": str(dem)})
@@ -509,7 +617,7 @@ class BrowserApiTests(unittest.TestCase):
         status, saved = self.req("POST", "/api/save", {"name": "view.png", "b64": "iVBORw=="})
         self.assertEqual(status, 200)
         self.assertEqual(Path(saved["saved"]).read_bytes()[:4], b"\x89PNG")
-        self.assertEqual(self.req("GET", "/api/export_dir")[1]["dir"], str(self.root / "work" / "exports"))
+        self.assertEqual(self.req("GET", "/api/export_dir")[1]["dir"], str((self.root / "work").resolve() / "exports"))
 
 
 @unittest.skipIf(os.name == "nt" or shutil.which("sh") is None, "the Linux / Mac launcher is a shell script")

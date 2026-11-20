@@ -169,7 +169,7 @@ export function DashboardMap({ depth, points, arrival, hillshade, overlays, fit 
                 interactive: false,
                 icon: L.divIcon({
                   className: "dash-arrival",
-                  html: a.text,
+                  html: escHtml(a.text),
                   iconSize: undefined as unknown as L.PointExpression,
                   iconAnchor: [-8, 22],
                 }),
