@@ -1,0 +1,632 @@
+{
+  "generatedFrom": "damit_catalog/data (python3 -m damit_hazard.engine.catalog --export)",
+  "note": "Display index only (ids, names, label maps). Thresholds and parameters live in the hazard catalog that damit:classify reads; regenerate with `node scripts/sync-jurisdictions.mjs`.",
+  "catalogVersion": "2026.11.09.4",
+  "sourceDocument": "US Dam Hazard Classification - Corrected Edition (2026-11-09), Appendix A pp. 18-30; In-Depth Summaries: Dam & Pond Hazard Classification - Federal Agencies and the States (2026-11)",
+  "disclaimer": "Informational screening aid, not legal or engineering advice and not a regulatory determination. Output is a suggested classification only. The engineer of record and the regulating agency make the determination. Rules change: the current statutes, rules and agency guidance control. Items marked (unverified) or (secondary) should be confirmed before a preset is relied on, and every suggestion still needs an engineer's review.",
+  "classes": {
+    "0": "Minimal",
+    "1": "Low",
+    "2": "Significant",
+    "3": "High",
+    "4": "Extremely High"
+  },
+  "scenarios": {
+    "S1": {
+      "name": "Sunny-day failure at normal pool",
+      "verification": "verified"
+    },
+    "S2": {
+      "name": "Sunny-day failure, reservoir full to high water line",
+      "verification": "verified"
+    },
+    "S3": {
+      "name": "Top of dam or PMF peak, whichever is lower",
+      "verification": "verified"
+    },
+    "S4": {
+      "name": "Peak pool during 100-year flood routing",
+      "verification": "verified"
+    },
+    "S5": {
+      "name": "Flood plus failure (rainy day)",
+      "verification": "verified"
+    },
+    "S6": {
+      "name": "Scenario set by current class",
+      "verification": "verified"
+    },
+    "S7": {
+      "name": "Multiple breach locations along an above-grade impoundment",
+      "verification": "verified"
+    }
+  },
+  "domains": {
+    "D1": {
+      "name": "Incremental rise cutoff",
+      "verification": "verified"
+    },
+    "D2": {
+      "name": "Water-surface convergence cutoff",
+      "verification": "verified"
+    }
+  },
+  "methods": {
+    "M1": {
+      "name": "Depth-velocity lethality charts",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M2": {
+      "name": "Flat depth threshold at habitable structures",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M3": {
+      "name": "Structure-type depth and DV matrix",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M4a": {
+      "name": "Count-by-depth: occupied structure count",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M4b": {
+      "name": "Count-by-depth: homes count x depth table",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M4c": {
+      "name": "Count-by-depth: lives or habitable structures",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M5": {
+      "name": "Lives-in-jeopardy count",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M6": {
+      "name": "Non-lethal flooding of occupied structures",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M7": {
+      "name": "Population threshold for a top tier",
+      "group": "structures life safety",
+      "verification": "verified"
+    },
+    "M8a": {
+      "name": "Road traffic bands",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8b": {
+      "name": "Sole access road",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8c": {
+      "name": "Road lanes x depth over road",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8d": {
+      "name": "Road functional class",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8e": {
+      "name": "Low-volume road exclusion",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8f": {
+      "name": "Isolation from emergency services",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M8g": {
+      "name": "Road washout examples",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M9a": {
+      "name": "Railroad impact (traffic / passenger)",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M9b": {
+      "name": "Railroad main/minor line x depth",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M9c": {
+      "name": "Railroad service type",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M10a": {
+      "name": "Critical facility isolation / hospital flooding",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M10b": {
+      "name": "Institutions by depth and DV (M3 institutions row)",
+      "group": "infrastructure",
+      "verification": "verified"
+    },
+    "M11a": {
+      "name": "Lifeline effectiveness or access",
+      "group": "lifelines",
+      "verification": "verified"
+    },
+    "M11b": {
+      "name": "Lifeline damage / generation / outage",
+      "group": "lifelines",
+      "verification": "verified"
+    },
+    "M11c": {
+      "name": "Important utilities / wastewater plants",
+      "group": "lifelines",
+      "verification": "verified"
+    },
+    "M12a": {
+      "name": "Archaeological / historic sites",
+      "group": "environment",
+      "verification": "verified"
+    },
+    "M12b": {
+      "name": "Substantial environmental damage",
+      "group": "environment",
+      "verification": "verified"
+    },
+    "M12c": {
+      "name": "Anadromous fish waters",
+      "group": "environment",
+      "verification": "verified"
+    },
+    "M12d": {
+      "name": "Intangible losses (resource agency)",
+      "group": "environment",
+      "verification": "verified"
+    },
+    "M13": {
+      "name": "Qualitative descriptor match",
+      "group": "fallback",
+      "verification": "verified"
+    }
+  },
+  "modifiers": {
+    "R1": {
+      "name": "Transient-use exclusion",
+      "verification": "verified"
+    },
+    "R2": {
+      "name": "Occupancy presumption",
+      "verification": "verified"
+    },
+    "R3": {
+      "name": "No evacuation credit",
+      "verification": "verified"
+    },
+    "R4": {
+      "name": "Dams in series",
+      "verification": "verified"
+    },
+    "R5": {
+      "name": "Future development",
+      "verification": "verified"
+    },
+    "R6": {
+      "name": "Proximity rule for new dams",
+      "verification": "verified"
+    },
+    "R7": {
+      "name": "Borderline goes higher",
+      "verification": "verified"
+    },
+    "R8": {
+      "name": "Simplified-analysis limits",
+      "verification": "verified"
+    },
+    "R9": {
+      "name": "Incremental damage analysis scope",
+      "verification": "verified"
+    },
+    "R10": {
+      "name": "Re-review trigger",
+      "verification": "verified"
+    }
+  },
+  "presets": {
+    "FEMA333": {
+      "label": "FEMA 333 baseline",
+      "scenarios": [
+        "S1"
+      ],
+      "methods": [
+        "M5",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R1",
+        "R3"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "USBR": {
+      "label": "USBR (ACER TM-11)",
+      "scenarios": [
+        "S1"
+      ],
+      "methods": [
+        "M1",
+        "M5"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R1"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "BIA": {
+      "label": "BIA",
+      "scenarios": [],
+      "methods": [
+        "M5"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "secondary"
+    },
+    "NRCS": {
+      "label": "NRCS",
+      "scenarios": [],
+      "methods": [
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R5"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "unverified"
+    },
+    "ND": {
+      "label": "North Dakota (REG_05.2026)",
+      "scenarios": [
+        "S3",
+        "S7"
+      ],
+      "methods": [
+        "M1",
+        "M2",
+        "M6",
+        "M8a",
+        "M8b",
+        "M9a",
+        "M11a"
+      ],
+      "advisoryMethods": [
+        "M6"
+      ],
+      "modifiers": [
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R7",
+        "R8",
+        "R9"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Medium",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "NE": {
+      "label": "Nebraska",
+      "scenarios": [
+        "S4"
+      ],
+      "methods": [
+        "M3",
+        "M4a",
+        "M8c",
+        "M9b",
+        "M11b",
+        "M12a"
+      ],
+      "advisoryMethods": [
+        "M4a"
+      ],
+      "modifiers": [
+        "R4",
+        "R5",
+        "R6"
+      ],
+      "labels": {
+        "0": "Minimal",
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "NY": {
+      "label": "New York",
+      "scenarios": [
+        "S1",
+        "S5"
+      ],
+      "methods": [
+        "M1",
+        "M4b",
+        "M8d",
+        "M8f",
+        "M9c",
+        "M10a",
+        "M11c",
+        "M12b",
+        "M5"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R1",
+        "R2",
+        "R4",
+        "R8"
+      ],
+      "labels": {
+        "1": "Class A",
+        "2": "Class B",
+        "3": "Class C"
+      },
+      "verification": "draft"
+    },
+    "VA": {
+      "label": "Virginia",
+      "scenarios": [
+        "S1",
+        "S5"
+      ],
+      "methods": [
+        "M13",
+        "M8e",
+        "M5"
+      ],
+      "advisoryMethods": [
+        "M5"
+      ],
+      "modifiers": [
+        "R5",
+        "R9"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "TX": {
+      "label": "Texas",
+      "scenarios": [],
+      "methods": [
+        "M4c",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R5"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "ID": {
+      "label": "Idaho",
+      "scenarios": [],
+      "methods": [
+        "M2",
+        "M6"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "CO": {
+      "label": "Colorado",
+      "scenarios": [
+        "S2"
+      ],
+      "methods": [
+        "M5",
+        "M6"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R10"
+      ],
+      "labels": {
+        "0": "No Public Hazard",
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "RI": {
+      "label": "Rhode Island",
+      "scenarios": [
+        "S6"
+      ],
+      "methods": [
+        "M13",
+        "M8g"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R1",
+        "R10"
+      ],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "AZ": {
+      "label": "Arizona",
+      "scenarios": [],
+      "methods": [
+        "M13",
+        "M12d"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [
+        "R1",
+        "R5",
+        "R10"
+      ],
+      "labels": {
+        "0": "Very Low",
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "CA": {
+      "label": "California",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M7"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High",
+        "4": "Extremely High"
+      },
+      "verification": "verified"
+    },
+    "AK": {
+      "label": "Alaska",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M12c",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Class III",
+        "2": "Class II",
+        "3": "Class I"
+      },
+      "verification": "verified"
+    },
+    "AL": {
+      "label": "Alabama",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    },
+    "NC": {
+      "label": "North Carolina",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Class A",
+        "2": "Class B",
+        "3": "Class C"
+      },
+      "verification": "verified"
+    },
+    "USACE": {
+      "label": "USACE (FEMA 333 terminology)",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "secondary"
+    },
+    "TVA": {
+      "label": "TVA (FEMA 333 tiers)",
+      "scenarios": [],
+      "methods": [
+        "M5",
+        "M13"
+      ],
+      "advisoryMethods": [],
+      "modifiers": [],
+      "labels": {
+        "1": "Low",
+        "2": "Significant",
+        "3": "High"
+      },
+      "verification": "verified"
+    }
+  }
+}
