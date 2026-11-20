@@ -280,12 +280,12 @@ def classify_env() -> dict[str, str]:
 
 
 def _argv(cmd: list[str]) -> list[str]:
-    """Windows cannot CreateProcess a .cmd or .bat. Run those through cmd.exe. An .exe is unchanged.
+    """A .py is not a program. Run it with this Python so the argument list is not re-parsed.
 
-    /s strips one pair of quotes around the whole command, so arguments that contain spaces stay one argument.
+    A real qgis_process is an executable and is left as given.
     """
-    if os.name == "nt" and cmd and cmd[0].lower().endswith((".cmd", ".bat")):
-        return ["cmd.exe", "/d", "/s", "/c", f'"{subprocess.list2cmdline(cmd)}"']
+    if cmd and cmd[0].lower().endswith(".py"):
+        return [sys.executable, *cmd]
     return cmd
 
 
