@@ -162,7 +162,7 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
   return (
     <section className="dash-root" data-testid="dashboard">
       <header className="dash-header">
-        <span className="dash-brand">▲ DamIT Crest</span>
+        <span className="dash-brand">▲ DamIT Desk</span>
         <span className="chip">
           <b>Scenario:</b> Sunny-day breach · {dam.name}
         </span>

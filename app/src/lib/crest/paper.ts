@@ -13,7 +13,7 @@ export const PAPER_DISCLAIMER = "Screening estimate — not an official hazard c
 
 /** The notice box (verbatim from the Style 3 template). */
 export const PAPER_NOTICE =
-  "This is a screening-level estimate produced by DamIT Crest. It is not an official hazard classification by any state or federal agency. " +
+  "This is a screening-level estimate produced by DamIT Desk. It is not an official hazard classification by any state or federal agency. " +
   "Decisions affecting life safety must use the full hydraulic study (Runner / LISFLOOD-FP) results.";
 
 /** Printed receptor rows are capped; the CSV always has every one. */

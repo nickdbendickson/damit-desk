@@ -196,6 +196,18 @@ export type HazardResult = {
   /** Receptor features sent, by layer. */
   layers?: Record<string, number>;
   skipped?: number;
+  /**
+   * The desktop server looks up the real structures, roads and rail for the depth raster's area (real_receptors.py).
+   * complete is false when any of them could not be checked (offline, a service down): the class is then a lower
+   * bound. A result without this field was classified from the desk's own receptors only (before 2026-11-20).
+   */
+  complete?: boolean | null;
+  /** Layer -> why it was not checked. */
+  notChecked?: Record<string, string>;
+  /** Layer -> where its features came from (the DamIT data folder, or a public service). */
+  layerSources?: Record<string, string>;
+  /** The rail trains-per-day lookup sent with the run (a file on this computer), when one was given. */
+  railTrainsLookup?: string | null;
   classifiedAt: string;
   /** choiceKey / receptorKey (classify-receptors.ts) and the choice in words, at the time of the run. */
   choiceKey: string;

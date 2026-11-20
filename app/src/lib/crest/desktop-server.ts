@@ -1,5 +1,5 @@
 /**
- * Calls to the DamIT Crest desktop server (desktop/damit_desktop/__main__.py). The server puts a per-launch token in
+ * Calls to the DamIT Desk server (desktop/damit_desktop/__main__.py). The server puts a per-launch token in
  * <meta name="damit-token"> of the page it serves; every /api/ call must send it back.
  */
 export function crestApiHeaders(json = false): Record<string, string> {

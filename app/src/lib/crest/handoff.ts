@@ -1,5 +1,5 @@
 /**
- * What the Report step sends to the DamIT Crest desktop server (desktop/damit_desktop/__main__.py), and the
+ * What the Report step sends to the DamIT Desk server (desktop/damit_desktop/__main__.py), and the
  * algorithm ids it shows before the server answers GET /api/handoff.
  *
  * The ids are the DamIT defaults (docs/HANDOFF.md): damit:classify (damit_hazard), damit_screen:preflight and

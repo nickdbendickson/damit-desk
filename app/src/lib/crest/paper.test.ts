@@ -26,7 +26,7 @@ describe("Style 3 paper report", () => {
     );
     assert.match(
       PAPER_NOTICE,
-      /^This is a screening-level estimate produced by DamIT Crest\. It is not an official hazard classification by any state or federal agency\./,
+      /^This is a screening-level estimate produced by DamIT Desk\. It is not an official hazard classification by any state or federal agency\./,
     );
     assert.match(PAPER_NOTICE, /full hydraulic study \(Runner \/ LISFLOOD-FP\) results\.$/);
   });

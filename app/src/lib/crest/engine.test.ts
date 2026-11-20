@@ -74,3 +74,11 @@ test("blankDam leaves spillway and normal pool blank", () => {
   const a = analyze(d);
   assert.ok(a);
 });
+
+test("blankDam invents no DEM crest, so no local-datum offset", () => {
+  const d = blankDam();
+  assert.ok(Number.isNaN(d.demCrestFt));
+  const a = analyze(d);
+  assert.equal(a.datum.offsetFt, null);
+  assert.ok(a.datum.warnings.some((w) => /No DEM tie/.test(w)), JSON.stringify(a.datum.warnings));
+});
