@@ -1690,6 +1690,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
                   driving: Array.isArray(c.driving) ? (c.driving as NonNullable<HazardResult["driving"]>).slice(0, 8) : [],
                   warnings: typeof c.warnings === "number" ? c.warnings : 0,
                   layers: (c.layers as Record<string, number>) ?? {},
+                  impacted: (c.impacted as Record<string, number>) ?? {},
+                  wetStructures: typeof c.wetStructures === "number" ? c.wetStructures : null,
                   skipped: typeof c.skipped === "number" ? c.skipped : 0,
                   complete: typeof c.complete === "boolean" ? c.complete : null,
                   notChecked: (c.notChecked as Record<string, string>) ?? {},

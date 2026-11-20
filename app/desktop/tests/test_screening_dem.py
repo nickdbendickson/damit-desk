@@ -82,6 +82,19 @@ class PartialScreeningTests(Base):
         self.assertIn("finished with a PARTIAL (preliminary) result", text)
         self.assertNotIn("The screening chain failed", text)
 
+    def test_a_time_limited_flood_without_a_class_is_still_partial(self):
+        # Absaraka 2026-11-20: no receptors were screened, so the package had no suggestion; the flood still ran.
+        with mock.patch.dict(os.environ, {"FAKE_CHAIN": "partial-noclass"}):
+            result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        self.assertTrue(result["partial"])
+        self.assertIsNone(result["screening"].get("suggested_label"))
+        self.assertIn("no preliminary class", result["warning"])
+        self.assertIn("5,190.8 ac", result["warning"])
+        text = "\n".join(self.lines)
+        self.assertIn("Also a gap in the suggest step", text)
+        self.assertNotIn("The screening chain failed", text)
+
     def test_a_real_failure_still_fails(self):
         with mock.patch.dict(os.environ, {"FAKE_CHAIN": "fail"}):
             result = qr.run_screening(DAM, ANALYSIS, str(self.root / "work"), self.log)

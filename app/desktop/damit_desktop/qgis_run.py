@@ -643,7 +643,8 @@ def run_check(log, cancel: threading.Event | None = None, config: HandoffConfig 
     log(f"qgis_process: {exe}")
     custom = os.environ.get("QGIS_CUSTOM_CONFIG_PATH")
     log("QGIS profile it reads: " + (f"default profile under {custom}" if custom else
-                                     "the default profile (QGIS_CUSTOM_CONFIG_PATH not set)"))
+                                     "the default profile, unless the qgis_process launcher sets its own "
+                                     "(QGIS_CUSTOM_CONFIG_PATH is not set for the desk)"))
     if custom:
         link = Path(custom) / "profiles" / "default"
         log(f"  -> {os.path.realpath(link)}" if link.exists() else
@@ -1058,9 +1059,9 @@ def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_
     pkg = _fresh_json(package, since)
     if pkg is None:
         return None
-    screening = pkg.get("screening") if isinstance(pkg.get("screening"), dict) else None
-    if not screening or not screening.get("suggested_label"):
-        return None
+    # The package may have no preliminary class (no receptors were screened, so the suggestion was not computed):
+    # the time-limited flood is still a partial result, with its figures and rasters, just no class.
+    screening = pkg.get("screening") if isinstance(pkg.get("screening"), dict) else {}
     steps = _fresh_json(Path(folder) / "steps.json", since) or {}
     engine = steps.get("engine2d") if isinstance(steps.get("engine2d"), dict) else {}
     stats = engine.get("stats") if isinstance(engine.get("stats"), dict) else {}
@@ -1071,7 +1072,9 @@ def screening_partial(root: Path, folder: Path, dam_id: str, since: float, desk_
         return None
     flood = {"timedOut": timed_out, "detail": engine.get("detail") or (flood_gap or {}).get("detail") or "",
              "acres": stats.get("flooded_acres"), "maxDepthFt": stats.get("max_depth_ft"),
-             "simHours": stats.get("sim_time_hr"), "runSeconds": stats.get("run_s"), "edge": stats.get("edge_flag")}
+             "simHours": stats.get("sim_time_hr"), "runSeconds": stats.get("run_s"), "edge": stats.get("edge_flag"),
+             "rasters": {k: v for k, v in (engine.get("rasters") or {}).items() if isinstance(v, str) and Path(v).is_file()}
+             if isinstance(engine.get("rasters"), dict) else {}}
     return {"screening": screening, "handoff": str(package), "flood": flood,
             "otherGaps": [g for g in gaps if g.get("step") != "engine2d"]}
 
@@ -1088,13 +1091,21 @@ def _partial_result(out: dict, partial: dict, dam_id: str, log) -> dict:
         bits.append(f"{flood['simHours']} h of model time")
     if flood.get("runSeconds") is not None:
         bits.append(f"stopped after {float(flood['runSeconds']) / 60:.0f} min")
-    warning = (f"PARTIAL SCREENING: the screening flood reached its time limit ({', '.join(bits) or 'no figures'}), "
-               f"so the preliminary class {label} rests on a flood that had not finished spreading. It is a lower "
-               "bound for review, not a result to rely on.")
+    if label:
+        warning = (f"PARTIAL SCREENING: the screening flood reached its time limit ({', '.join(bits) or 'no figures'}), "
+                   f"so the preliminary class {label} rests on a flood that had not finished spreading. It is a lower "
+                   "bound for review, not a result to rely on.")
+    else:
+        warning = (f"PARTIAL SCREENING: the screening flood reached its time limit ({', '.join(bits) or 'no figures'}). "
+                   "Its depths and wet area so far are a lower bound for review, and there is no preliminary class "
+                   "(the screener computed no suggestion for this run). Use Classify on a finished flood for the class.")
     log("")
     log(warning)
     log("The screener's chain says the flood \"did not run\" and fails because of the time limit (FAIL_ON_ERROR). "
-        "The flood did run; its maxima so far are kept, and the hand-off package below has the preliminary class.")
+        "The flood did run; its maxima so far are kept" +
+        (", and the hand-off package below has the preliminary class." if label else "."))
+    for name, path in (flood.get("rasters") or {}).items():
+        log(f"Partial screening raster ({name}): {path}")
     if flood.get("edge"):
         log("The flood also reached the edge of its terrain, so it is cut off there as well.")
     for gap in partial.get("otherGaps") or []:
@@ -1401,7 +1412,22 @@ def read_hazard_report(out_dir: Path) -> dict | None:
                 "receptors": len(h.get("receptors") or []),
             })
     flags = [f for f in res.get("flags") or [] if isinstance(f, dict) and f.get("level") in ("error", "warning")]
+    # What the run found affected among the real receptors (for the printed report's table): receptors with a hit, by
+    # layer (per_receptor keys look like "structure:39", "road:240"), and the wet structures it counted.
+    layer_of = {"structure": "STRUCTURES", "road": "ROADS", "rail": "RAIL", "facility": "FACILITIES",
+                "lifeline": "LIFELINES", "environment": "ENVIRONMENT"}
+    impacted: dict[str, int] = {}
+    per = res.get("per_receptor") if isinstance(res.get("per_receptor"), dict) else {}
+    for key in per:
+        layer = layer_of.get(str(key).split(":", 1)[0])
+        if layer:
+            impacted[layer] = impacted.get(layer, 0) + 1
+    hab = res.get("habitability") if isinstance(res.get("habitability"), dict) else {}
+    tally = hab.get("tally") if isinstance(hab.get("tally"), dict) else {}
+    wet = tally.get("wet_structures")
     return {
+        "impacted": impacted,
+        "wetStructures": wet if isinstance(wet, int) and not isinstance(wet, bool) else None,
         "ranMode": cfg.get("mode"),
         "ranPreset": cfg.get("preset"),
         "ranPresetLabel": cfg.get("preset_label"),

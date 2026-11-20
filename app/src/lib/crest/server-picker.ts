@@ -54,3 +54,12 @@ export async function getServer<T>(path: string): Promise<T> {
   if (!r.ok) throw new Error(out.error ?? `HTTP ${r.status}`);
   return out;
 }
+
+/** Short names for the picker's root shortcuts: the folder name, with its parent when two roots share a name. */
+export function rootLabels(roots: string[]): string[] {
+  const parts = roots.map((r) => r.split(/[\\/]/).filter(Boolean));
+  const last = parts.map((p, i) => p[p.length - 1] || roots[i]!);
+  return parts.map((p, i) =>
+    last.filter((l) => l === last[i]).length > 1 && p.length > 1 ? `${p[p.length - 2]}/${last[i]}` : last[i]!,
+  );
+}

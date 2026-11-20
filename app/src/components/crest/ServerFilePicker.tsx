@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { listOnServer, setServerPicker, type Listing, type PickRequest } from "@/lib/crest/server-picker";
+import { listOnServer, rootLabels, setServerPicker, type Listing, type PickRequest } from "@/lib/crest/server-picker";
 
 export function ServerFilePicker() {
   const [req, setReq] = useState<PickRequest | null>(null);
@@ -74,9 +74,9 @@ export function ServerFilePicker() {
         </form>
         {list?.roots && list.roots.length > 1 ? (
           <div className="mt-2 flex flex-wrap gap-1 text-xs" data-testid="server-picker-roots">
-            {list.roots.map((r) => (
+            {list.roots.map((r, i) => (
               <button key={r} type="button" className="rounded-sm border border-line bg-paper px-2 py-0.5 hover:bg-sand" title={r} onClick={() => void go(r, req.mode)}>
-                {r.split(/[\\/]/).filter(Boolean).pop() || r}
+                {rootLabels(list.roots ?? [])[i]}
               </button>
             ))}
           </div>

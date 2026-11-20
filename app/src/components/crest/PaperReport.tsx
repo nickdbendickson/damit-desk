@@ -10,6 +10,7 @@ import {
   paperFlagsCoded,
   paperRows,
   receptorCsv,
+  receptorMetrics,
   stampClass,
 } from "@/lib/crest/paper";
 import { saveText } from "@/lib/crest/save";
@@ -110,7 +111,8 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
   const lead = reportLead(dam, result);
   const hazardClass = lead.kind === "hazard" ? dam.hazardResult?.suggestedClass : undefined;
   const chosen = choiceText(damChoice(dam));
-  const wet = result.flood.receptors.filter((r) => r.flooded).length;
+  // The receptor rows: damit:classify's real receptors when its result is current, else the desk's own list.
+  const metrics = receptorMetrics(result, lead.kind === "hazard" ? dam.hazardResult : null);
   const { rows, shown, total } = paperRows(result);
   const flags = paperFlagsCoded(result, runWarnings);
   const deepest = [...result.flood.receptors]
@@ -160,8 +162,8 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
             <td>{num(result.flood.maxDepthFt, 1)} ft</td>
             <td>
               {deepest
-                ? `deepest structure: ${deepest.name}, ${num(deepest.depthFt, 2)} ft`
-                : "no structure wet"}
+                ? `deepest desk receptor: ${deepest.name}, ${num(deepest.depthFt, 2)} ft`
+                : "no desk receptor wet"}
             </td>
           </tr>
           <tr>
@@ -169,13 +171,13 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
             <td>{num(result.flood.acres, 0)} acres</td>
             <td>{result.flood.engineLabel}</td>
           </tr>
-          <tr>
-            <th scope="row">Structures affected</th>
-            <td>
-              {wet} of {result.flood.receptors.length} mapped
-            </td>
-            <td>{source}</td>
-          </tr>
+          {metrics.map((m) => (
+            <tr key={m.metric} data-testid="paper-receptor-metric">
+              <th scope="row">{m.metric}</th>
+              <td>{m.value}</td>
+              <td>{m.note}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
 

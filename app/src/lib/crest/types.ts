@@ -208,6 +208,10 @@ export type HazardResult = {
   warnings?: number;
   /** Receptor features sent, by layer. */
   layers?: Record<string, number>;
+  /** Receptors the run scored a hit for, by layer (per_receptor in damit_hazard_report.json). */
+  impacted?: Record<string, number>;
+  /** Wet structures the run counted (habitability tally), or null when the report does not say. */
+  wetStructures?: number | null;
   skipped?: number;
   /**
    * The desktop server looks up the real structures, roads and rail for the depth raster's area (real_receptors.py).

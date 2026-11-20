@@ -53,7 +53,7 @@ export const SCHEMA: Record<SharedKey, Spec> = {
       ["max_storage", "Maximum storage"],
     ],
     help: "The volume the breach equations take for a PMF or flood-inflow breach.",
-    crest: "Not used by Crest (a sunny-day screen). Kept in the file for the Runner.",
+    crest: "Not used by the desk (a sunny-day screen). Kept in the file for the Runner.",
   },
   failure_mode: {
     kind: "choice",
@@ -77,7 +77,7 @@ export const SCHEMA: Record<SharedKey, Spec> = {
       ["tr60_curvilinear", "NRCS TR-60, curvilinear hydrograph"],
     ],
     help: "The breach parameter equation a new run starts with.",
-    crest: "Crest has Froehlich (2008), MacDonald and a TR-60 width. Another choice starts new records on Froehlich (2008).",
+    crest: "The desk has Froehlich (2008), MacDonald and a TR-60 width. Another choice starts new records on Froehlich (2008).",
   },
   manning_n: {
     kind: "number",
@@ -236,7 +236,7 @@ export function recordDefaults(values: Required<SharedValues>): RecordDefaults {
     method = "froehlich";
     notes.push(`The shared defaults ask for ${labelOf("breach_method", shared)}, which DamIT Desk does not have. New records start on Froehlich (2008).`);
   } else if (shared === "tr60" || shared === "tr60_curvilinear") {
-    notes.push("The shared defaults ask for an NRCS TR-60 hydrograph. Crest's TR-60 is a breach width from the dam height, routed through the same weir as the other methods.");
+    notes.push("The shared defaults ask for an NRCS TR-60 hydrograph. The desk's TR-60 is a breach width from the dam height, routed through the same weir as the other methods.");
   }
   return {
     startPool: POOL_FROM_SHARED[String(values.sunny_day_start_pool)] ?? "top",
@@ -299,7 +299,7 @@ export function assumptions(dam: DamRecord, shared: Shared, version: string, use
   }
   const notes: string[] = [];
   const nCh = roughnessOf(dam.roughness).nChannel;
-  if (nCh !== DEFAULT_ROUGHNESS.nChannel) notes.push(`Channel Manning's n ${nCh} (Crest built-in ${DEFAULT_ROUGHNESS.nChannel}).`);
+  if (nCh !== DEFAULT_ROUGHNESS.nChannel) notes.push(`Channel Manning's n ${nCh} (desk built-in ${DEFAULT_ROUGHNESS.nChannel}).`);
   if (used.sunny_day_start_pool === "entered_elevation") notes.push("The breach starts at an elevation entered on the record (starting_pool_ft).");
   return {
     used,
