@@ -114,6 +114,29 @@ if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_PACKAGE")
         (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
             "status": "computed_preliminary", "suggested_label": "Significant", "suggested_ordinal": 2,
             "flags": ["preliminary"]}}))
+if any(a.endswith(":runchain") for a in args) and os.environ.get("FAKE_CHAIN"):
+    # Like DamIT Screener 0.3.5+: FAKE_CHAIN=partial keeps a time-limited flood's maxima (engine2d GAP, "partial:
+    # time limit"), writes the package with its preliminary class, then fails the chain (FAIL_ON_ERROR) saying the
+    # flood "did not run". FAKE_CHAIN=fail fails with no package; FAKE_CHAIN=nopkg-timeout writes only steps.json.
+    mode = os.environ["FAKE_CHAIN"]
+    settings = json.loads(Path(vals["SETTINGS"]).read_text())
+    Path(os.environ["CALLS"]).open("a").write("SETTINGS " + json.dumps(settings) + "\n")
+    dam_id = (settings.get("dam_ids") or [""])[0]
+    detail = ("screening flood (built-in, partial: time limit): 5190.8 ac, max 12.49 ft, 3 receptor(s) sampled")
+    if mode in ("partial", "nopkg-timeout"):
+        dam_dir = Path(vals["WORK"]) / "dams" / dam_id
+        dam_dir.mkdir(parents=True, exist_ok=True)
+        (dam_dir / "steps.json").write_text(json.dumps({"engine2d": {"status": "gap", "detail": detail, "stats": {
+            "flooded_acres": 5190.8, "max_depth_ft": 12.49, "sim_time_hr": 18.0, "run_s": 2880.1,
+            "timed_out": True, "edge_flag": True}}}))
+    if mode == "partial":
+        folder = Path(vals["WORK"]) / "handoff" / dam_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "damit_handoff.json").write_text(json.dumps({"schema": "damit.handoff", "screening": {
+            "status": "computed_preliminary", "suggested_label": "Medium", "suggested_ordinal": 2},
+            "gaps": [{"step": "engine2d", "status": "gap", "detail": detail}]}))
+    print("runchain: 1 dam(s) failed: " + dam_id + ": did not run: " + detail)
+    sys.exit(1)
 if any(a.endswith(":rundam") for a in args) and "OUTPUT_FOLDER" in vals:
     print("RUN_FOLDER:\t" + vals["OUTPUT_FOLDER"] + "/run_1")
     launched = vals.get("DRY_RUN") == "false" and "DAMS_FOLDER" in vals
@@ -223,6 +246,8 @@ class Base(unittest.TestCase):
                 "FAKE_STYLE": "",
                 "FAKE_PACKAGE": "",
                 "FAKE_CLASSIFY": "",
+                "FAKE_CHAIN": "",
+                "DAMIT_SCREENING_TIMEOUT_S": "",
                 "APPDATA": "",
                 "LISFLOOD_EXE": "",
                 "DAMIT_LISFLOOD_EXE": "",

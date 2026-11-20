@@ -1538,6 +1538,8 @@ const handoff = {
   model: "lisflood",
   source: "data",
   log: "No DamIT plugin has been started.",
+  /** A screening that ended with a partial (time-limited) preliminary result: shown above the log. */
+  warning: "",
   busy: false,
   job: "",
 };
@@ -1621,6 +1623,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       if (handoffTimer) window.clearInterval(handoffTimer);
       handoff.busy = true;
       handoff.log = "Starting…\n";
+      handoff.warning = "";
       bump((n) => n + 1);
       // Classify: the downstream receptors (and drawn area) go to damit:classify, so the chosen preset or custom
       // methods judge them. The keys tie the result to this choice and these receptors.
@@ -1670,6 +1673,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           try {
             const found = await (await fetch(`/api/job?id=${job.id}`, { headers: crestApiHeaders() })).json();
             handoff.log = String(found.log || "");
+            if (found.done && found.partial && typeof found.warning === "string") handoff.warning = found.warning;
             if (found.done && ran && found.ok && found.classification?.suggestedClass && useDesk.getState().activeId === ran.damId) {
               const c = found.classification as Record<string, unknown>;
               const str = (v: unknown) => (typeof v === "string" && v ? v : null);
@@ -1952,6 +1956,11 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         fills looks for embankments on the DEM; a candidate is not a listed dam.
       </p>
       <ExportsFolder />
+      {handoff.warning ? (
+        <p className="mt-2 rounded-sm border border-amber bg-amber/10 p-2 text-sm text-ink" role="status" data-testid="screening-partial">
+          {handoff.warning}
+        </p>
+      ) : null}
       <LiveLog text={handoff.log} busy={handoff.busy} />
     </div>
   );
