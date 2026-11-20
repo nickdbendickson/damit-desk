@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import os
+import sys
 import re
 import shutil
 import signal
@@ -279,9 +280,12 @@ def classify_env() -> dict[str, str]:
 
 
 def _argv(cmd: list[str]) -> list[str]:
-    """Windows cannot CreateProcess a .cmd or .bat. Run those through cmd.exe. An .exe is unchanged."""
+    """Windows cannot CreateProcess a .cmd or .bat. Run those through cmd.exe. An .exe is unchanged.
+
+    /s strips one pair of quotes around the whole command, so arguments that contain spaces stay one argument.
+    """
     if os.name == "nt" and cmd and cmd[0].lower().endswith((".cmd", ".bat")):
-        return ["cmd.exe", "/d", "/c", subprocess.list2cmdline(cmd)]
+        return ["cmd.exe", "/d", "/s", "/c", f'"{subprocess.list2cmdline(cmd)}"']
     return cmd
 
 
@@ -1316,4 +1320,6 @@ def _python_for(cli: str) -> str:
     ):
         if Path(candidate).is_file():
             return candidate
+    if os.name == "nt":
+        return sys.executable
     return "python3"

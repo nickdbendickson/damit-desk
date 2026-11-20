@@ -13,9 +13,14 @@ from pathlib import Path
 
 
 def write_exe(path: Path, text: str) -> Path:
+    body = "\n".join(line for line in text.splitlines() if not line.startswith("#!"))
     if os.name == "nt":
-        script = path if path.suffix == ".py" else path.with_suffix(".py")
-        body = "\n".join(line for line in text.splitlines() if not line.startswith("#!"))
+        # A .py is run by the interpreter. An extensionless program (qgis_process) cannot be
+        # CreateProcess'd, so it gets a .cmd that runs the same script.
+        if path.suffix == ".py":
+            path.write_text(body + "\n", encoding="utf-8")
+            return path
+        script = path.with_suffix(".py")
         script.write_text(body + "\n", encoding="utf-8")
         cmd = path.with_suffix(".cmd")
         cmd.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
