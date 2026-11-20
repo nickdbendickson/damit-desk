@@ -15,6 +15,7 @@ import hmac
 import json
 import os
 import secrets
+import shutil
 import sys
 import threading
 import time
@@ -166,7 +167,8 @@ def consume_launch_code(code: str) -> str:
         return "ok"
 _LOCAL_HOSTS = ("127.0.0.1", "localhost")
 
-#: damit-crest-settings.json (last Save folder, the chosen local DEM). Set by main(); tests set it directly.
+#: damit-desk-settings.json (last Save folder, the chosen local DEM; read from damit-crest-settings.json before the
+#: rename). Set by main(); tests set it directly.
 SETTINGS_FILE: Path | None = None
 
 _jobs: dict[str, dict] = {}
@@ -403,15 +405,15 @@ class _Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             return
         if result == "used":
-            print("DamIT Crest desktop: WARNING - the browser launch link was used more than once. If the desk in your "
-                  "browser says so, another program used it first: stop DamIT Crest (Ctrl+C) and start it again.",
+            print("DamIT Desk: WARNING - the browser launch link was used more than once. If the desk in your "
+                  "browser says so, another program used it first: stop DamIT Desk (Ctrl+C) and start it again.",
                   flush=True)
         msg = {
-            "used": "This DamIT Crest launch link was already used. Use the DamIT Crest tab that is already open, or "
-                    "stop DamIT Crest (Ctrl+C in its terminal) and start it again for a new link.",
-            "expired": "This DamIT Crest launch link has expired. Stop DamIT Crest (Ctrl+C in its terminal) and start "
+            "used": "This DamIT Desk launch link was already used. Use the DamIT Desk tab that is already open, or "
+                    "stop DamIT Desk (Ctrl+C in its terminal) and start it again for a new link.",
+            "expired": "This DamIT Desk launch link has expired. Stop DamIT Desk (Ctrl+C in its terminal) and start "
                        "it again.",
-        }.get(result, "This is not a valid DamIT Crest launch link. Stop DamIT Crest (Ctrl+C in its terminal) and "
+        }.get(result, "This is not a valid DamIT Desk launch link. Stop DamIT Desk (Ctrl+C in its terminal) and "
                       "start it again.")
         self._send(410 if result in ("used", "expired") else 403, msg.encode("utf-8"), "text/plain; charset=utf-8")
 
@@ -701,15 +703,68 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTP
     return server
 
 
+#: The settings file in the storage folder (last Save folder, the chosen local DEM, the exports folder).
+SETTINGS_NAME = "damit-desk-settings.json"
+#: Its name before the rename to DamIT Desk (2026-11-20): still read when the new one is missing.
+LEGACY_SETTINGS_NAME = "damit-crest-settings.json"
+
+
+def _data_home() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+
+
 def storage_dir() -> Path:
-    """Where the webview keeps localStorage (the desk's records) between runs, the settings and the NID cache.
-    The folder keeps its DamIT Crest name, so records saved before the rename to DamIT Desk are still found."""
+    """Where the webview keeps localStorage (the desk's records) between runs, the settings and the NID cache."""
     if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
-        return base / "DamIT Crest"
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "DamIT Desk"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "DamIT Desk"
+    return _data_home() / "damit-desk"
+
+
+def legacy_storage_dir() -> Path:
+    """The same folder under its DamIT Crest name, from before the rename (read, never changed or deleted)."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "DamIT Crest"
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "DamIT Crest"
-    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "damit-crest"
+    return _data_home() / "damit-crest"
+
+
+def prepare_storage(log=print) -> tuple[Path, Path]:
+    """(storage folder, settings file) for this run.
+
+    First run after the rename: the old DamIT Crest folder is copied to the DamIT Desk one, so saved records, the
+    chosen DEM and the NID cache carry over; the old folder is left exactly as it was. When the copy cannot be made the
+    old folder is used as it is. Later runs: a settings file missing from the new folder is read from the old one."""
+    store, legacy = storage_dir(), legacy_storage_dir()
+    if not store.exists() and legacy.is_dir():
+        try:
+            shutil.copytree(legacy, store, symlinks=True,
+                            ignore=shutil.ignore_patterns("SingletonLock", "SingletonSocket", "SingletonCookie",
+                                                          "*.lock", "lockfile"))
+            log(f"DamIT Desk: copied your DamIT Crest settings and records from {legacy} to {store}. "
+                "The old folder is left as it was.")
+        except (OSError, shutil.Error) as exc:
+            log(f"DamIT Desk: could not copy {legacy} to {store} ({exc}); using the old folder.")
+            return legacy, _settings_in(legacy)
+    store.mkdir(parents=True, exist_ok=True)
+    settings = store / SETTINGS_NAME
+    old = store / LEGACY_SETTINGS_NAME
+    if not settings.exists():
+        for source in (old, legacy / LEGACY_SETTINGS_NAME):
+            if source.is_file():
+                try:
+                    shutil.copy2(source, settings)
+                except OSError:
+                    return store, source
+                break
+    return store, settings
+
+
+def _settings_in(folder: Path) -> Path:
+    new = folder / SETTINGS_NAME
+    return new if new.is_file() or not (folder / LEGACY_SETTINGS_NAME).is_file() else folder / LEGACY_SETTINGS_NAME
 
 
 def _save_dialog_type(webview_mod):
@@ -959,9 +1014,7 @@ def launch_url(port: int, code: str) -> str:
 
 def main() -> None:
     global SETTINGS_FILE
-    store = storage_dir()
-    store.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE = store / "damit-crest-settings.json"
+    store, SETTINGS_FILE = prepare_storage(lambda line: print(line, flush=True))
     qgis_run.SETTINGS_DIR = store  # damit-handoff.json is read from here (docs/HANDOFF.md)
     qgis_run.DESK_SETTINGS_FILE = SETTINGS_FILE  # the DEM chosen in the desk goes to the plugins too
     nid.NID_DIR = store / "nid"  # the per-state NID cache (nid.py), outside the install and any repository
@@ -972,7 +1025,7 @@ def main() -> None:
     # install test 2026-11-18: the address is printed at start (flushed: the launcher's output may be a pipe), so the
     # port is visible whichever window opens. It carries no token: opened by hand it shows the desk, but every /api/
     # call is refused. Only the window (or the browser fallback's one-time launch link) gets the token.
-    print(f"DamIT Crest desktop: {url}", flush=True)
+    print(f"DamIT Desk: {url}", flush=True)
     try:
         import webview
 

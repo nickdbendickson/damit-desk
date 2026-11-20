@@ -51,7 +51,7 @@ describe("desk file", () => {
   });
 
   it("names the file by local date", () => {
-    assert.equal(deskFileName(new Date(2026, 10, 3)), "damit-crest-desk-2026-11-03.json");
+    assert.equal(deskFileName(new Date(2026, 10, 3)), "damit-desk-2026-11-03.json");
   });
 
   it("refuses what it cannot read, with a reason, and never throws", () => {
@@ -73,7 +73,7 @@ describe("desk file", () => {
     const newer = openDeskFile(
       JSON.stringify({ format: DESK_FILE_FORMAT, formatVersion: 99, dams: [SAMPLE_DAMS[0]] }),
     );
-    assert.ok(!newer.ok && /newer DamIT Crest/.test(newer.reason));
+    assert.ok(!newer.ok && /newer DamIT Desk/.test(newer.reason));
   });
 
   it("rebuilds each record field by field: wrong types are dropped with a note, unknown keys are not kept", () => {
@@ -226,7 +226,7 @@ describe("merging an opened file into the desk", () => {
   });
 });
 
-describe("DamIT Crest's own record fields and files", () => {
+describe("DamIT Desk's own record fields and files", () => {
   const HAZARD = {
     suggestedClass: "High",
     ordinal: "3",

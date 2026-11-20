@@ -118,7 +118,7 @@ export const deskStorage: StateStorage = {
       noteSave(false);
     } catch (e) {
       const detail = (e as Error).message;
-      console.warn(`DamIT Crest: could not save the desk in this browser (${detail}).`);
+      console.warn(`DamIT Desk: could not save the desk in this browser (${detail}).`);
       noteSave(true, detail);
     }
   },

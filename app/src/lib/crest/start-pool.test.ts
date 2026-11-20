@@ -1,5 +1,5 @@
 // The starting pool (engine.ts startingPool) and per-record Manning's n (routing.ts roughnessOf): the same engine
-// behaviour as crest's settings.test.ts. The desk controls for them are not in DamIT Crest yet.
+// behaviour as crest's settings.test.ts. The desk controls for them are not in DamIT Desk yet.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 

@@ -43,7 +43,7 @@ export function DeskFiles({ onNote }: { onNote: (note: string) => void }) {
     setError(null);
     setPending(null);
     if (f.size > DESK_FILE_MAX_BYTES)
-      return setError(`${f.name} is too large to be a DamIT Crest desk file.`);
+      return setError(`${f.name} is too large to be a DamIT Desk file.`);
     setBusy(true);
     try {
       const opened = openDeskFile(await f.text());

@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Build:  pyinstaller damit_crest.spec   (Python 3.10–3.12; damit_desktop/web/ is committed, rebuild it with `npm run build:desktop` after changing src/)
-# Result: dist/DamIT Crest/ (Windows: dist\DamIT Crest\DamIT Crest.exe), and dist/DamIT Crest.app on macOS.
+# Build:  pyinstaller damit_desk.spec   (Python 3.10–3.12; damit_desktop/web/ is committed, rebuild it with `npm run build:desktop` after changing src/)
+# Result: dist/DamIT Desk/ (Windows: dist\DamIT Desk\DamIT Desk.exe), and dist/DamIT Desk.app on macOS.
 
 import sys
 from pathlib import Path
 
 if not Path("../../damit_catalog/handoff.py").is_file():
-    raise SystemExit("../../damit_catalog/handoff.py is missing: build from a checkout of the damit repository.")
+    raise SystemExit("../../damit_catalog/handoff.py is missing: build from a checkout of the damit-desk repository.")
 if not Path("damit_desktop/web/index.html").is_file():
     raise SystemExit("damit_desktop/web/index.html is missing: run `npm run build:desktop` from the repo root first.")
 
@@ -16,7 +16,7 @@ a = Analysis(
     ["run.py"],
     pathex=["."],
     binaries=[],
-    # DamIT Catalog's NID-ID rule: damit_desktop/nid_rule.py loads this file (no copy of the rule in Crest).
+    # DamIT Catalog's NID-ID rule: damit_desktop/nid_rule.py loads this file (no copy of the rule in the desk).
     datas=[("damit_desktop/web", "damit_desktop/web"), ("damit_desktop/icon.png", "damit_desktop"), ("../../docs/img/damit-wordmark-light.png", "docs/img"), ("../../damit_catalog/handoff.py", "damit_catalog")],
     hiddenimports=[
         "damit_desktop",
@@ -41,13 +41,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="DamIT Crest",
+    name="DamIT Desk",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     console=False,
-    icon="damit_crest.ico",
+    icon="damit_desk.ico",
 )
 coll = COLLECT(
     exe,
@@ -55,13 +55,13 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="DamIT Crest",
+    name="DamIT Desk",
 )
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
-        name="DamIT Crest.app",
-        icon="damit_crest.ico",
-        bundle_identifier="org.damit.crest",
-        info_plist={"CFBundleName": "DamIT Crest", "CFBundleDisplayName": "DamIT Crest — Dam Breach and Hazard Desk"},
+        name="DamIT Desk.app",
+        icon="damit_desk.ico",
+        bundle_identifier="org.damit.desk",
+        info_plist={"CFBundleName": "DamIT Desk", "CFBundleDisplayName": "DamIT Desk — Dam Breach and Hazard Desk"},
     )

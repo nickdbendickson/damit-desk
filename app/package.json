@@ -26,6 +26,7 @@
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test 'src/lib/crest/*.test.ts'",
     "test:desktop": "python3 desktop/tests/run_tests.py",
     "typecheck": "tsc --noEmit",
+    "check:engine": "node scripts/check-engine-sync.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "data:nid": "node scripts/build-nid-dams.mjs",

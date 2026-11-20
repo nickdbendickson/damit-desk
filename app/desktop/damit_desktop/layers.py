@@ -179,7 +179,7 @@ def _save_url(url: str, dest: Path, timeout: float, fetch) -> None:
     if fetch is not None:
         fetch(url, dest)
         return
-    request = urllib.request.Request(url, headers={"User-Agent": "DamIT-Crest-desktop"})
+    request = urllib.request.Request(url, headers={"User-Agent": "DamIT-Desk"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read(80_000_000 + 1)

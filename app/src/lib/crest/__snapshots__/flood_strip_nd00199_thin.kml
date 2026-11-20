@@ -6,7 +6,7 @@
 Dam ND00199 (Swan Buffalo Detention 12). Crest 1071.09 ft NAVD88. Peak 28,623 cfs.
 Schematic desk valley: max depth 14.53 ft, wet strip 11.07 km, 2323.4 ac.
 Downstream direction: across the dam at the breach, away from the reservoir (bearing 131°). A curved embankment uses the segment nearest the breach. The strip is straight down that valley; it does not follow later bends in the stream.
-Engine: crest-desk-engine 2026.11.12. Written by DamIT Crest 0.1.2+local.</description>
+Engine: crest-desk-engine 2026.11.12. Written by DamIT Desk 0.1.2+local.</description>
 <Style id="d0"><LineStyle><width>0</width></LineStyle><PolyStyle><color>73f2e3c6</color><outline>0</outline></PolyStyle></Style>
 <Style id="d1"><LineStyle><width>0</width></LineStyle><PolyStyle><color>73e6c993</color><outline>0</outline></PolyStyle></Style>
 <Style id="d2"><LineStyle><width>0</width></LineStyle><PolyStyle><color>73d6a85a</color><outline>0</outline></PolyStyle></Style>

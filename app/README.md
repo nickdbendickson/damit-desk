@@ -74,7 +74,7 @@ damit_crest/
     components/crest/ClassificationPanel.tsx
   scripts/                  tests, build-nid-dams.mjs (NID state extract), batch-dams.mjs, sync-jurisdictions.mjs
   desktop/                  the pywebview app (adapted from Crest's crest-desktop/)
-    run.py, requirements.txt, INSTALL.txt, damit_crest.spec, build_mac.sh
+    run.py, requirements.txt, INSTALL.txt, damit_desk.spec, build_mac.sh
     damit_desktop/          __main__ (window + local API), nid (NID by state), algorithms (hand-off ids), qgis_run, handoff, layers, localdem
     damit_desktop/web/      the built desk (committed, so `python run.py` needs no Node)
     tests/                  headless tests; fake qgis_process, nothing real is started
@@ -93,15 +93,15 @@ python run.py
 
 Windows uses WebView2 (built into Windows 11), macOS WebKit, Linux `pywebview[qt]` if you install it; `bin/damit-desk`
 on Linux skips pywebview and opens the system browser. If no window backend starts, the desk opens in the system
-browser and prints its address. Optional packages: `pyinstaller damit_crest.spec` (Windows / Linux) or
-`sh build_mac.sh` (macOS, Python 3.10–3.12) give `DamIT Crest.exe` / `DamIT Crest.app`.
+browser and prints its address. Optional packages: `pyinstaller damit_desk.spec` (Windows / Linux) or
+`sh build_mac.sh` (macOS, Python 3.10–3.12) give `DamIT Desk.exe` / `DamIT Desk.app`.
 
 The local server listens on 127.0.0.1:47241 (Crest uses 47231, so both can run). Every `/api/` call needs the
 per-launch token (`X-DamIT-Token`), and a job may only write under `~/DamITDams`, `DAMIT_WORK` or `DAMIT_WORK_ROOTS`.
 The server never puts the token in the page and no endpoint returns it: the window opens at
 `index.html#damit-token=<token>` (a URL fragment is never sent over HTTP), and the page keeps it in `sessionStorage`.
 
-**The printed address and the browser.** At start the desk prints `DamIT Crest desktop: http://127.0.0.1:47241/index.html`
+**The printed address and the browser.** At start the desk prints `DamIT Desk: http://127.0.0.1:47241/index.html`
 (a random port when 47241 is busy). That address has no token: opened by hand in a browser it shows the desk, but every
 call to the local server (layers, the dam folder, screening, model runs, classify, the hand-off and VERTCON
 lookups, the local DEM) is
@@ -114,7 +114,7 @@ used when you had not opened it means another program used it first; restarting 
 
 ## Settings: starting pool, roughness and the shared defaults
 
-DamIT Crest's presets are the pool at the top of dam, a piping failure, Froehlich (2008) and Manning's n of 0.035 in
+DamIT Desk's presets are the pool at the top of dam, a piping failure, Froehlich (2008) and Manning's n of 0.035 in
 the channel and 0.06 on the floodplain. They can be changed in two places.
 
 **On one record (Breach step, "Advanced: starting pool and roughness").**
@@ -138,7 +138,7 @@ the shared defaults and has a button to put it back on them.
 
 | Where | Your values live in | How to change them |
 | --- | --- | --- |
-| Desktop app | `~/DamIT/defaults.json`, found the way DamIT Core finds it outside QGIS: the `defaults_file` key of the DamIT settings file (`DAMIT_SETTINGS`, else `~/.config/damit/settings.json`), else `DAMIT_DEFAULTS` | Settings > Save writes the file. Editing it by hand works too; DamIT Crest reads it when it opens. |
+| Desktop app | `~/DamIT/defaults.json`, found the way DamIT Core finds it outside QGIS: the `defaults_file` key of the DamIT settings file (`DAMIT_SETTINGS`, else `~/.config/damit/settings.json`), else `DAMIT_DEFAULTS` | Settings > Save writes the file. Editing it by hand works too; DamIT Desk reads it when it opens. |
 | `DamIT.html` in a browser | that browser | Settings > Save. *Open settings file* reads a `defaults.json`; *Save settings file* writes one to hand to the plugins. |
 | Batch command line | a file you name | `npm run batch:dams -- --defaults ~/DamIT/defaults.json ...` |
 
@@ -146,24 +146,24 @@ A `defaults_file` chosen inside QGIS is kept in the QGIS profile, which the desk
 `DAMIT_DEFAULTS` to the same path if you keep the file somewhere other than `~/DamIT`.
 
 Your file holds only the keys you changed, so a key you never touched follows the suite's value when the suite is
-updated. Unknown keys and out-of-range values are left out and named, never guessed. DamIT Crest has three of the
+updated. Unknown keys and out-of-range values are left out and named, never guessed. DamIT Desk has three of the
 suite's breach equations (Froehlich 2008, MacDonald & Langridge-Monopolis, a TR-60 width); if the shared defaults ask
 for another, new records start on Froehlich (2008) and Settings says so. `pmf_breach_volume` is kept in the file for
 the Runner and not used here. A test compares the desk's copy of the suite values, choices and ranges with
 `damit_core/data/defaults.json` and DamIT Core's schema, so the two cannot drift apart.
 
-Every `dam.json` DamIT Crest writes (Report step, and the dam folder) carries an `assumptions` entry in the form
+Every `dam.json` DamIT Desk writes (Report step, and the dam folder) carries an `assumptions` entry in the form
 `shared_defaults.assumptions()` writes: what the record used, in the shared file's own names, the shared values at the
 time, and `differs`, the keys where the two are not the same. `starting_pool_ft` and `starting_pool_rule` give the pool
 the breach really started from. An `assumptions` entry another tool already wrote in the dam folder's `dam.json` is
-kept; DamIT Crest's own is then on its screened status entry.
+kept; DamIT Desk's own is then on its screened status entry.
 
 ## Saving and moving your work
 
 The desk's dams live in the desktop app's own storage (or the browser `DamIT.html` is open in), not in a file you can
 see. Under the dam list:
 
-- **Save desk to file** writes every dam on the desk to one file, `damit-crest-desk-<date>.json`: inputs, receptors,
+- **Save desk to file** writes every dam on the desk to one file, `damit-desk-<date>.json`: inputs, receptors,
   drawn lines and areas, saved 911 / PLSS lookups, the terrain layer, the jurisdiction choice and the last classify
   result. This is the backup, and the way to move a desk to another computer or between `DamIT.html` and the desktop
   app.
@@ -257,5 +257,5 @@ from the hazard catalog (`--check` to verify). `npm run data:nid` refreshes the 
 batch screen from the command line (`--nid-state XX --nid-file <extract>` for a state other than ND). Tests use
 fixtures and never download the NID.
 
-Every export carries the build (`crest_version`, `<package version>+<git sha>`, labelled "DamIT Crest") and the engine
+Every export carries the build (`crest_version`, `<package version>+<git sha>`, labelled "DamIT Desk") and the engine
 method version (`engine_version`); the field names are Crest's so existing readers keep working.

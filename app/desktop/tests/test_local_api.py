@@ -148,6 +148,8 @@ class LocalApiTests(unittest.TestCase):
         event.wait.side_effect = KeyboardInterrupt
         with mock.patch.dict(sys.modules, {"webview": None}), \
                 mock.patch.object(m, "storage_dir", return_value=self.home / "store"), \
+                mock.patch.object(m, "legacy_storage_dir", return_value=self.home / "old-store"), \
+                mock.patch.object(m.qgis_run, "DESK_SETTINGS_FILE", m.qgis_run.DESK_SETTINGS_FILE), \
                 mock.patch.object(m, "SETTINGS_FILE", m.SETTINGS_FILE), \
                 mock.patch.object(m.qgis_run, "SETTINGS_DIR", m.qgis_run.SETTINGS_DIR), \
                 mock.patch.object(m.nid, "NID_DIR", m.nid.NID_DIR), \
@@ -169,6 +171,8 @@ class LocalApiTests(unittest.TestCase):
         event.wait.side_effect = KeyboardInterrupt
         with mock.patch.dict(sys.modules, {"webview": None}), \
                 mock.patch.object(m, "storage_dir", return_value=self.home / "store"), \
+                mock.patch.object(m, "legacy_storage_dir", return_value=self.home / "old-store"), \
+                mock.patch.object(m.qgis_run, "DESK_SETTINGS_FILE", m.qgis_run.DESK_SETTINGS_FILE), \
                 mock.patch.object(m, "SETTINGS_FILE", m.SETTINGS_FILE), \
                 mock.patch.object(m.qgis_run, "SETTINGS_DIR", m.qgis_run.SETTINGS_DIR), \
                 mock.patch.object(m.nid, "NID_DIR", m.nid.NID_DIR), \

@@ -156,11 +156,11 @@ describe("a new record starts from the shared defaults", () => {
     assert.equal(back.method, "froehlich");
   });
 
-  it("an equation Crest does not have starts on Froehlich (2008) and says so", () => {
+  it("an equation the desk does not have starts on Froehlich (2008) and says so", () => {
     for (const m of ["froehlich1995", "vtg1990"]) {
       const r = recordDefaults({ ...SUITE_VALUES, breach_method: m });
       assert.equal(r.method, "froehlich");
-      assert.match(r.notes.join(" "), /Crest does not have/);
+      assert.match(r.notes.join(" "), /DamIT Desk does not have/);
     }
     assert.equal(recordDefaults({ ...SUITE_VALUES, breach_method: "tr60_curvilinear" }).method, "tr60");
     assert.deepEqual(recordDefaults(SUITE_VALUES).notes, []);

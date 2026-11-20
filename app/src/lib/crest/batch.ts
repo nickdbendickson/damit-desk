@@ -775,7 +775,7 @@ export function batchCsv(rows: BatchRow[], meta: BatchCsvMeta = {}): string {
     .filter((l): l is string => l != null);
   const head = [
     `# ${BATCH_DISCLAIMER}`,
-    `# DamIT Crest ${CREST_VERSION}; ${ENGINE_VERSION}. Written ${now.toISOString().slice(0, 10)}.`,
+    `# DamIT Desk ${CREST_VERSION}; ${ENGINE_VERSION}. Written ${now.toISOString().slice(0, 10)}.`,
     ...ages.map((l) => `# ${l}`),
   ];
   const lines = sortRows(rows).map((r) =>

@@ -1,7 +1,7 @@
 /**
  * The shared defaults file: the suite-wide starting values every dam tool reads (DamIT Core 0.3.0
- * `damit_core/lib/shared_defaults.py`, DamSafety Core 1.2.0 `damsuite/shared_defaults.py`, and DamIT Crest here). One
- * file format, so the file a plugin reads opens in DamIT Crest and the other way round:
+ * `damit_core/lib/shared_defaults.py`, DamSafety Core 1.2.0 `damsuite/shared_defaults.py`, and DamIT Desk here). One
+ * file format, so the file a plugin reads opens in DamIT Desk and the other way round:
  *
  *   {"format": "dam-defaults", "format_version": 1, "name": "...", "note": "...", "values": {key: value}}
  *
@@ -144,7 +144,7 @@ export function readDefaultsFile(text: string, fileName = DEFAULTS_FILE_NAME): R
     return { ok: false, reason: `${fileName} is not a defaults file (format ${JSON.stringify(d.format)}, expected "${DEFAULTS_FORMAT}").` };
   if (d.format == null && !("values" in d)) return { ok: false, reason: `${fileName} is not a defaults file (no "format" and no "values").` };
   if (typeof d.format_version === "number" && Number.isInteger(d.format_version) && d.format_version > DEFAULTS_FORMAT_VERSION)
-    return { ok: false, reason: `${fileName} was written in defaults format ${d.format_version} by a newer tool; this Crest reads format ${DEFAULTS_FORMAT_VERSION}. Update Crest.` };
+    return { ok: false, reason: `${fileName} was written in defaults format ${d.format_version} by a newer tool; this desk reads format ${DEFAULTS_FORMAT_VERSION}. Update DamIT Desk.` };
   const out: SharedValues = {};
   const problems: string[] = [];
   for (const [k, v] of Object.entries(values as Record<string, unknown>)) {
@@ -202,7 +202,7 @@ export function defaultsFileText(yours: SharedValues, now = new Date()): string 
         format: DEFAULTS_FORMAT,
         format_version: DEFAULTS_FORMAT_VERSION,
         name: "Your defaults",
-        note: "Your changes to the suite defaults. A key not listed here follows the suite file. Edit by hand or in DamIT Crest (Settings).",
+        note: "Your changes to the suite defaults. A key not listed here follows the suite file. Edit by hand or in DamIT Desk (Settings).",
         saved,
         values: keep,
       },
@@ -234,7 +234,7 @@ export function recordDefaults(values: Required<SharedValues>): RecordDefaults {
   let method = METHOD_FROM_SHARED[shared];
   if (!method) {
     method = "froehlich";
-    notes.push(`The shared defaults ask for ${labelOf("breach_method", shared)}, which Crest does not have. New records start on Froehlich (2008).`);
+    notes.push(`The shared defaults ask for ${labelOf("breach_method", shared)}, which DamIT Desk does not have. New records start on Froehlich (2008).`);
   } else if (shared === "tr60" || shared === "tr60_curvilinear") {
     notes.push("The shared defaults ask for an NRCS TR-60 hydrograph. Crest's TR-60 is a breach width from the dam height, routed through the same weir as the other methods.");
   }

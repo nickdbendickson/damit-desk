@@ -637,8 +637,8 @@ def run_check(log, cancel: threading.Event | None = None, config: HandoffConfig 
     cfg = handoff_config(config)
     exe = find_qgis_process()
     if not exe:
-        log("qgis_process was not found. Open the desk with the dam-suite launcher open-damit-crest.sh, or put "
-            "QGIS's qgis_process on PATH (or set QGIS_PROCESS).")
+        log("qgis_process was not found. Install the DamIT plugins with the suite installer (install-all.sh) and start "
+            "the desk with QGIS_PROCESS set to its qgis-process-damit.sh (.cmd on Windows), or put qgis_process on PATH.")
         return {"ok": False, "check": []}
     log(f"qgis_process: {exe}")
     custom = os.environ.get("QGIS_CUSTOM_CONFIG_PATH")

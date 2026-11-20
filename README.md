@@ -24,11 +24,16 @@ Python 3.10 or newer. Node is not required. The built desk is already in `app/de
 The terminal prints the address, for example:
 
 ```
-DamIT Desk is running at http://127.0.0.1:47241/index.html
+DamIT Desk: http://127.0.0.1:47241/index.html
+DamIT Desk is opening in your browser with a one-time launch link.
 ```
 
-If no browser opens (WSL, SSH, no default browser), open that address yourself in a browser **on the same computer**.
-Leave the terminal open while you use the desk; **Ctrl+C** in it closes the desk.
+The browser is opened with a **one-time launch link** (`/launch?code=…`, good for 2 minutes and one use). It hands the
+page the desk's per-launch key without the key ever being written into the page or onto a command line, so other
+programs and other users on the computer cannot drive the desk. If no browser opens (WSL, SSH, no default browser), the
+terminal prints that link: open it yourself in a browser **on the same computer** within 2 minutes. The plain address
+above shows the desk too, but its buttons that reach this computer (QGIS, files) are refused; stop the desk (Ctrl+C)
+and start it again for a new link. Leave the terminal open while you use the desk; **Ctrl+C** in it closes the desk.
 
 **Port 47241 busy.** If another program (or a second DamIT Desk) already uses 47241, the desk says so and picks a
 random port for that session; use the address it prints. Your saved dams are kept by the browser per address, so the
@@ -36,8 +41,12 @@ dams from the usual 47241 address are not shown in that session. Close the other
 
 ### Linux browser mode: what is different
 
-- **Choosing a local DEM, the Report step's file fields and the exports folder** use the desk's own file chooser
-  (a list of folders on this computer), not the system's Open dialog.
+- **Choosing a local DEM, the Report step's file fields and the exports folder** use the desk's own file chooser,
+  not the system's Open dialog. It shows only the desk's own folders: the work folder (`~/DamITDams`, `DAMIT_WORK`,
+  `DAMIT_WORK_ROOTS`), the exports folder, the DamIT data folder (`DAMIT_DATA`), the folder of `DAMIT_DEM` and of the
+  DEM already chosen, and any folders you list in **`DAMIT_DEM_ROOTS`** (separated by `:` on Linux and Mac, `;` on
+  Windows). To pick a DEM somewhere else, start the desk with, for example,
+  `DAMIT_DEM_ROOTS=/data/dems bin/damit-desk`. The exports folder must be inside the work folder.
 - **Save / Export buttons** do not download through the browser. The desk writes the file into its exports folder
   (`~/DamITDams/exports` unless you pick another with **Change…** on the Report step) and tells you the full path. An
   existing file is never overwritten; a new copy gets ` (2)`.
@@ -93,14 +102,29 @@ plugin's output while it runs.
 
 | What | Linux | Mac | Windows |
 |---|---|---|---|
-| Settings, chosen DEM, NID downloads | `~/.local/share/damit-crest/` (`$XDG_DATA_HOME/damit-crest`) | `~/Library/Application Support/DamIT Crest/` | `%APPDATA%\DamIT Crest\` |
+| Settings, chosen DEM, NID downloads | `~/.local/share/damit-desk/` (`$XDG_DATA_HOME/damit-desk`) | `~/Library/Application Support/DamIT Desk/` | `%APPDATA%\DamIT Desk\` |
 | Dam folders, runs, classifications | `~/DamITDams/` (or `DAMIT_WORK`) | same | same |
 | Exports from Save buttons | `~/DamITDams/exports/` (changeable) | the Save dialog | the Save dialog |
 | Dams you entered | the browser's storage for the desk address | the window's storage in the folder above | same |
 
-The settings folders keep the old "DamIT Crest" name so dams saved before the rename are still found. A job sent to
+**From DamIT Crest.** The first time DamIT Desk starts, it copies the old settings folder (`damit-crest`, or
+`DamIT Crest` on Mac and Windows) to the new one, so dams, the chosen DEM and the NID downloads carry over. The old
+folder is left as it was; delete it yourself once you no longer need DamIT Crest. A job sent to
 the desk may only write under `~/DamITDams`, `DAMIT_WORK`, or folders listed in `DAMIT_WORK_ROOTS`. `DAMIT_DATA` points
 at a DamIT data folder, `DAMIT_DEM` at a default DEM.
+
+## What else is on the desk
+
+- **Save desk to file / Open desk file** (top bar): every dam on the desk in one `damit-desk-<date>.json`, to move a
+  desk to another computer or keep a copy. Opening one adds its dams; nothing on the desk is overwritten without asking.
+- **Settings** (top bar): the shared starting values every DamIT tool reads (`~/DamIT/defaults.json`): starting pool,
+  failure mode, breach method, Manning's n.
+- **Check QGIS hand-off** (Report step): tests that `qgis_process` is found and every DamIT algorithm the buttons call
+  is installed in the profile it reads, without running a dam.
+- **Screening with a time limit.** With `DAMIT_SCREENING_TIMEOUT_S` set, a screening flood that reaches the limit keeps
+  what it has: the desk shows a **PARTIAL SCREENING** warning with the preliminary class, which is then a lower bound,
+  instead of failing. The DEM in the Report step's DEM field, `DAMIT_DEM` or the DEM chosen on the Flood step is used
+  for every clip of the screening flood, so it no longer downloads USGS 3DEP for the larger clips.
 
 ## A shortcut
 

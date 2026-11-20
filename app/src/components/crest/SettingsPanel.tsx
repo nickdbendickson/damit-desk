@@ -86,7 +86,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <p className="mt-1 max-w-3xl text-sm text-muted">
-          The starting values every dam tool reads: DamIT Crest and the DamIT plugins. A new record or run starts from them, and each
+          The starting values every dam tool reads: DamIT Desk and the DamIT plugins. A new record or run starts from them, and each
           record can still be changed on its Breach step. Records you already have keep their own values.{" "}
           {where === "file" ? (
             <span data-testid="settings-where">
