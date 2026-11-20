@@ -1,4 +1,4 @@
-"""Open the DamIT Crest desk in a desktop window.
+"""Open the DamIT Desk desk in a desktop window.
 
 Serves the bundled web desk (damit_desktop/web/, built by `npm run build:desktop`) on 127.0.0.1 and shows it in a pywebview
 window. Exports go through a native Save dialog (`window.pywebview.api.save_file`, and `save_file_b64` for the view
@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from damit_desktop import WEB_DIR_NAME
+from damit_desktop import browser_io
 from damit_desktop import localdem
 from damit_desktop import nid
 from damit_desktop import qgis_run
@@ -47,7 +48,7 @@ from damit_desktop.qgis_run import (
 #: If it is taken, a random port is used for that session.
 PREFERRED_PORT = 47241
 
-TITLE = "DamIT Crest — Dam Breach and Hazard Desk"
+TITLE = "DamIT Desk"
 
 #: Random per-launch secret. The served index.html carries it in <meta name="damit-token">; every /api/ call must
 #: send it back in the X-DamIT-Token header. A custom header also forces a CORS preflight, which this server never
@@ -99,8 +100,9 @@ def start_job(
 ) -> dict:
     """Write the dam folder, fetch layers, or call the plugins on a background thread. Returns immediately.
 
-    cancel_job(id) stops a screening or model run (qgis_process / the CLI); timeout (seconds) limits the
-    screening chain (else DAMIT_SCREENING_TIMEOUT_S, else none)."""
+    cancel_job(id) stops any job that runs qgis_process or the CLI (screening, model, classify, Download layers,
+    Atlas 14, Find fills) and what it started; timeout (seconds) limits the screening chain (else
+    DAMIT_SCREENING_TIMEOUT_S, else none). The plugin buttons have their own limits (qgis_run.plugin_timeout)."""
     job_id = uuid.uuid4().hex[:12]
     job = {"id": job_id, "done": False, "ok": False, "log": "", "folder": "", "work": "", "cancelled": False}
     cancel = threading.Event()
@@ -121,11 +123,11 @@ def start_job(
             elif kind == "classify":
                 result = run_classify(dam or {}, analysis or {}, work, log, files, cancel=cancel, receptors=receptors)
             elif kind == "data":
-                result = run_data(dam or {}, analysis or {}, work, log, files)
+                result = run_data(dam or {}, analysis or {}, work, log, files, cancel=cancel)
             elif kind == "pmp":
-                result = run_pmp(dam or {}, analysis or {}, work, log, files)
+                result = run_pmp(dam or {}, analysis or {}, work, log, files, cancel=cancel)
             elif kind == "finder":
-                result = run_finder(dam or {}, analysis or {}, work, log, files)
+                result = run_finder(dam or {}, analysis or {}, work, log, files, cancel=cancel)
             else:
                 result = run_screening(dam or {}, analysis or {}, work, log, files, timeout=timeout, cancel=cancel,
                                        receptors=receptors)
@@ -141,13 +143,13 @@ def start_job(
                 if isinstance(result.get("classification"), dict):
                     # damit:classify's class for the chosen jurisdiction; the Report step stores and leads with it.
                     job["classification"] = dict(result["classification"])
-                for flag in ("noReceptors", "noDepth"):
+                for flag in ("noReceptors", "noDepth", "incomplete", "timedOut"):
                     if result.get(flag):
                         job[flag] = True
                 job["folder"] = result.get("folder") or ""
                 job["work"] = result.get("work") or ""
         except Exception as exc:
-            _job_log(job, f"DamIT Crest stopped: {exc}")
+            _job_log(job, f"DamIT Desk stopped: {exc}")
         finally:
             with _jobs_lock:
                 job["done"] = True
@@ -188,7 +190,7 @@ def check_bundle(root: Path | None = None) -> Path:
     index = root / "index.html"
     if not index.is_file():
         raise SystemExit(
-            f"DamIT Crest desktop: the web desk bundle is missing ({index}).\n"
+            f"DamIT Desk desktop: the web desk bundle is missing ({index}).\n"
             "Build it from the repo root with `npm ci && npm run build:desktop`."
         )
     return root
@@ -261,6 +263,9 @@ class _Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/nid/state":
             self._send_nid(parse_qs(parsed.query))
             return
+        if parsed.path in ("/api/fs/list", "/api/dem/choice", "/api/export_dir"):
+            self._browser_get(parsed.path, parse_qs(parsed.query))
+            return
         if parsed.path == "/api/handoff":
             # The algorithm ids the buttons will call (DamIT defaults or overrides), for the Report step to show.
             self._send(200, json.dumps(handoff_config().as_json()).encode(), "application/json")
@@ -307,6 +312,13 @@ class _Handler(SimpleHTTPRequestHandler):
             found = cancel_job(job_id)
             self._send(404 if found.get("error") else 200, json.dumps(found).encode(), "application/json")
             return
+        if parsed.path in BROWSER_POST:
+            if not self._api_allowed(need_json=True):
+                return
+            body = self._json_body(limit=MAX_SAVE_BODY if parsed.path == "/api/save" else 1_000_000)
+            if body is not None:
+                self._browser_post(parsed.path, body)
+            return
         if kind is None:
             self._send(404, b"not found", "text/plain")
             return
@@ -344,7 +356,8 @@ class _Handler(SimpleHTTPRequestHandler):
         # Classify: the model run's rasters (paths on this computer), for damit:classify's DEPTH / VELOCITY / DV / WSE /
         # NONBREACH / ARRIVAL.
         for key, field in (("depth", "depthRaster"), ("velocity", "velocityRaster"), ("dv", "dvRaster"),
-                           ("wse", "wseRaster"), ("nonbreach", "nonbreachRaster"), ("arrival", "arrivalRaster")):
+                           ("wse", "wseRaster"), ("nonbreach", "nonbreachRaster"), ("arrival", "arrivalRaster"),
+                           ("railLookup", "railTrainsLookup")):
             if isinstance(payload.get(key), str) and payload[key].strip():
                 dam = dict(dam)
                 dam[field] = payload[key].strip()
@@ -369,6 +382,70 @@ class _Handler(SimpleHTTPRequestHandler):
                      and isinstance(payload.get("receptors"), dict) else None)
         body = json.dumps(start_job(kind, dam, analysis, work, model, files, source, timeout, receptors))
         self._send(200, body.encode(), "application/json")
+
+    def _json_body(self, limit: int) -> dict | None:
+        """The request's JSON object, or None after sending the 400 / 413."""
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            self._send(400, b'{"error":"chunked request bodies are not supported"}', "application/json")
+            return None
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._send(400, b'{"error":"bad content length"}', "application/json")
+            return None
+        if length > limit:
+            self._send(413, b'{"error":"too large"}', "application/json")
+            return None
+        try:
+            payload = json.loads((self.rfile.read(length) if length else b"{}").decode() or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = None
+        if not isinstance(payload, dict):
+            self._send(400, b'{"error":"bad json"}', "application/json")
+            return None
+        return payload
+
+    def _reply(self, fn) -> None:
+        try:
+            out = fn()
+        except browser_io.BrowserIOError as exc:
+            self._send(400, json.dumps({"error": str(exc)}).encode(), "application/json")
+            return
+        except (OSError, ValueError) as exc:
+            self._send(500, json.dumps({"error": str(exc)}).encode(), "application/json")
+            return
+        self._send(200, json.dumps(out).encode(), "application/json")
+
+    def _browser_get(self, path: str, query: dict) -> None:
+        """Browser mode (browser_io.py): list a folder for the desk's file chooser, the chosen DEM, the exports folder."""
+        if path == "/api/fs/list":
+            mode = (query.get("mode") or ["dem"])[0]
+            self._reply(lambda: browser_io.list_dir((query.get("dir") or [""])[0] or None, "folder" if mode == "folder" else "dem"))
+        elif path == "/api/dem/choice":
+            self._reply(lambda: browser_io.dem_state(SETTINGS_FILE))
+        else:
+            self._reply(lambda: {"dir": str(browser_io.export_dir(SETTINGS_FILE))})
+
+    def _browser_post(self, path: str, body: dict) -> None:
+        if path == "/api/dem/choose":
+            self._reply(lambda: browser_io.choose_dem(SETTINGS_FILE, str(body.get("path") or "")))
+        elif path == "/api/dem/clear":
+            self._reply(lambda: browser_io.clear_dem(SETTINGS_FILE))
+        elif path == "/api/export_dir":
+            self._reply(lambda: {"dir": str(browser_io.set_export_dir(SETTINGS_FILE, str(body.get("path") or "")))})
+        else:  # /api/save
+            def save():
+                if isinstance(body.get("b64"), str):
+                    data = decode_b64(body["b64"])
+                elif isinstance(body.get("text"), str):
+                    data = body["text"].encode("utf-8")
+                else:
+                    raise browser_io.BrowserIOError("nothing to save")
+                return {"saved": str(browser_io.save_export(SETTINGS_FILE, str(body.get("name") or ""), data))}
+
+            self._reply(save)
 
     def _send_dem(self, query: dict) -> None:
         """Terrain from the local DEM chosen in the app (localdem.py); 409 when none is chosen."""
@@ -437,14 +514,17 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTP
     except OSError as e:
         if port == 0 or e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1), 10048):
             raise
-        print(f"DamIT Crest desktop: port {port} is busy; using a random port (saved records will not carry over).")
+        print(f"DamIT Desk: port {port} is busy (another DamIT Desk, or another program). Using a random port for this "
+              "session: records saved in the browser are kept per address, so the ones from port "
+              f"{port} are not shown until the desk runs on {port} again.")
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
 def storage_dir() -> Path:
-    """Where the webview keeps localStorage (the desk's records) between runs."""
+    """Where the webview keeps localStorage (the desk's records) between runs, the settings and the NID cache.
+    The folder keeps its DamIT Crest name, so records saved before the rename to DamIT Desk are still found."""
     if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
         return base / "DamIT Crest"
@@ -525,7 +605,7 @@ class Api:
             return {"cancelled": True}
         path = picked if isinstance(picked, str) else picked[0]
         if Path(path).suffix.lower() not in localdem.DEM_SUFFIXES:
-            return {"error": f"Not a DEM file DamIT Crest reads ({', '.join(localdem.DEM_SUFFIXES)}): {path}"}
+            return {"error": f"Not a DEM file DamIT Desk reads ({', '.join(localdem.DEM_SUFFIXES)}): {path}"}
         if self._settings_file:
             localdem.write_dem_path(self._settings_file, path)
         return {"path": path, "gdalwarp": localdem.find_gdalwarp()}
@@ -592,6 +672,10 @@ class Api:
 
 #: Largest binary export accepted from the page (a view PDF is a few MB).
 MAX_BINARY_BYTES = 100 * 1024 * 1024
+#: Largest /api/save request (base64 of MAX_BINARY_BYTES plus the JSON around it).
+MAX_SAVE_BODY = MAX_BINARY_BYTES * 4 // 3 + 1_000_000
+#: Browser-mode POSTs (browser_io.py).
+BROWSER_POST = ("/api/dem/choose", "/api/dem/clear", "/api/save", "/api/export_dir")
 
 
 def decode_b64(b64: str) -> bytes:
@@ -682,8 +766,13 @@ def main() -> None:
         api = Api(settings_file=SETTINGS_FILE)
         api._window = webview.create_window(TITLE, url, js_api=api, width=1280, height=860, min_size=(760, 560))
         webview.start(private_mode=False, storage_path=str(store))
-    except Exception as e:  # no GUI backend: use the system browser (downloads work there)
-        print(f"DamIT Crest desktop: no webview ({e}). Opening {url} in the browser; press Ctrl+C to stop.")
+    except Exception as e:  # no GUI backend: use the system browser (Linux on purpose; see browser_io.py)
+        if not isinstance(e, ImportError):
+            print(f"DamIT Desk: no native window ({e}).")
+        print(f"DamIT Desk is running at {url}")
+        print("Your browser should open it. If it does not, open that address in a browser on this computer.")
+        print("Leave this terminal open while you use the desk; press Ctrl+C here to close it.")
+        sys.stdout.flush()
         webbrowser.open(url)
         try:
             threading.Event().wait()

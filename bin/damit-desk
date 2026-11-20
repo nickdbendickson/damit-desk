@@ -4,15 +4,21 @@ set -e
 HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 APP=$(CDPATH= cd -- "$HERE/../app/desktop" && pwd)
 PY="${DAMIT_DESK_PYTHON:-python3}"
-VENV="$APP/.venv"
-if [ ! -x "$VENV/bin/python" ]; then
-  "$PY" -m venv "$VENV"
-fi
-# A native window on Mac. Linux stays in the browser so Qt is not installed.
 case "$(uname -s)" in
   Darwin)
+    # A native window on Mac: pywebview, in a virtualenv next to the app (made on the first run).
+    VENV="$APP/.venv"
+    if [ ! -x "$VENV/bin/python" ]; then
+      "$PY" -m venv "$VENV"
+    fi
     "$VENV/bin/python" -m pip install -q 'pywebview>=5.0,<7'
+    RUN="$VENV/bin/python"
+    ;;
+  *)
+    # Linux stays in the browser so Qt is not installed. The desk itself needs only Python's standard library,
+    # so there is no virtualenv to make (and no python3-venv package to install).
+    RUN="$PY"
     ;;
 esac
 cd "$APP"
-exec "$VENV/bin/python" run.py
+exec "$RUN" run.py

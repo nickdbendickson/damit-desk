@@ -52,7 +52,7 @@ LISTS = {
                "MAX_RUNS", "DURATION_HR", "DURATION_MAX_HR", "LISFLOOD_EXE", "ANUGA_PYTHON", "ENGINE"],
     "download": ["STATE", "EXTENT", "SOURCES", "FOLDER", "FORCE", "MAX_MB"],
     "pointpf": ["POINT", "OUTPUT_CSV", "OUTPUT_JSON"],
-    "embankments": ["DEM", "OUT", "EXTENT"],
+    "embankments": ["DEM", "OUT", "EXTENT", "KNOWN"],
 }
 ENUMS = {"MODE": ["preset", "custom"],
          "ENGINE": ["From Models (TIER)", "LISFLOOD-FP", "ANUGA (LISFLOOD-FP for the extent, then ANUGA)",
@@ -231,6 +231,11 @@ class Base(unittest.TestCase):
                 "DAMIT_RUN_DURATION_HR": "",
                 "DAMIT_RUN_DURATION_MAX_HR": "",
                 "DAMIT_RAIL_TRAINS_LOOKUP": "",
+                # No online receptor lookups in the headless tests (real_receptors.py); test_desk_fixes fakes them.
+                "DAMIT_OFFLINE": "1",
+                "DAMIT_PLUGIN_TIMEOUT_S": "",
+                # No suite-installed qgis-process-damit.sh from this machine's ~/dam-suite.
+                "DAMSUITE_PREFIX": str(self.root / "no-dam-suite"),
             },
         )
         self.env.start()

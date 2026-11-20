@@ -40,18 +40,24 @@ EOF
     echo "Open it from Applications. If macOS says it cannot be opened, right-click it and choose Open."
     ;;
   Linux)
-    DEST="${HOME}/.local/share/applications"
-    ICONS="${HOME}/.local/share/icons"
+    DATA="${XDG_DATA_HOME:-${HOME}/.local/share}"
+    DEST="${DATA}/applications"
+    # The icon theme folder: desktops look up Icon=damit-desk there, not in ~/.local/share/icons itself.
+    ICONS="${DATA}/icons/hicolor/scalable/apps"
     mkdir -p "$DEST" "$ICONS"
     cp "$ICON" "$ICONS/damit-desk.svg"
+    # Exec is quoted so a checkout under a folder with spaces still starts. "$" "`" "\" and '"' in the path are
+    # escaped as the Desktop Entry spec asks. Terminal=true: the desk is a local server; its terminal shows the
+    # address to open, the log, and closes the desk with Ctrl+C.
+    EXEC=$(printf '%s' "${ROOT}/bin/damit-desk" | sed -e 's/[\\"`$]/\\&/g')
     cat > "$DEST/damit-desk.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=${NAME}
 Comment=Dam breach screening, model handoff, and classification. QGIS stays in the background.
-Exec=${ROOT}/bin/damit-desk
+Exec="${EXEC}"
 Icon=damit-desk
-Terminal=false
+Terminal=true
 Categories=Science;Engineering;
 StartupNotify=true
 EOF
@@ -59,8 +65,12 @@ EOF
     if command -v update-desktop-database >/dev/null 2>&1; then
       update-desktop-database "$DEST" >/dev/null 2>&1 || true
     fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -t "${DATA}/icons/hicolor" >/dev/null 2>&1 || true
+    fi
     echo "Installed ${DEST}/damit-desk.desktop"
-    echo "It is in the application menu. Or run: ${ROOT}/bin/damit-desk"
+    echo "It is in the application menu. It opens a terminal for the desk; close the desk with Ctrl+C there."
+    echo "Or run: ${ROOT}/bin/damit-desk"
     ;;
   *)
     echo "On Windows, from this folder run: powershell -File install-launcher.ps1"
