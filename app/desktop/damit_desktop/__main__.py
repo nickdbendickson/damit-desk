@@ -740,7 +740,10 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT, fixed: bool = Fa
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     except OSError as e:
-        if port == 0 or e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1), 10048):
+        # Windows says WSAEACCES (10013) when the port is held with SO_EXCLUSIVEADDRUSE (or reserved): busy, too.
+        busy = e.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1), 10048) or (
+            os.name == "nt" and getattr(e, "winerror", None) == 10013)
+        if port == 0 or not busy:
             raise
         if fixed:
             raise PortBusyError(e.errno, f"DamIT Desk: port {port} (set with DAMIT_PORT or \"port\" in the settings "
