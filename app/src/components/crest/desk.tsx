@@ -1,7 +1,6 @@
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 
-import damitWordmark from "@/assets/damit-wordmark-light.png";
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
 import { locationProblem } from "@/lib/crest/guided";
@@ -100,6 +99,21 @@ import { loadSettings, sharedNow } from "@/lib/crest/settings-store";
 import { CREST_VERSION } from "@/lib/crest/version";
 import { BreachAdvanced } from "./BreachAdvanced";
 import { SettingsPanel } from "./SettingsPanel";
+import { CommandPalette, type Command } from "./CommandPalette";
+import { DeskHeader, DeskStatusBar, DeskTabs } from "./DeskChrome";
+import { WorkflowMap } from "./WorkflowMap";
+import { isPaletteShortcut, shortcutLabel } from "@/lib/crest/commands";
+import { jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJobStatus } from "@/lib/crest/job-status";
+import {
+  firstOpenWorkflowStep,
+  railState,
+  STEP_DONE,
+  stepForTab,
+  tabForStep,
+  TABS,
+  type TabId,
+} from "@/lib/crest/pipeline";
+import { saveDeskFile } from "@/lib/crest/desk-save";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -154,6 +168,61 @@ function FlagList({ flags, className, testId }: { flags: Warning[]; className: s
   );
 }
 
+const FIELD_MODE_KEY = "damit-desk-field-mode";
+const MAP_OPEN_KEY = "damit-desk-workflow-map";
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const v = window.localStorage.getItem(key);
+    return v == null ? fallback : v === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try {
+    window.localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    /* storage full or blocked: the choice lasts for this window only */
+  }
+}
+
+/** Field mode (the dark palette in styles.css, body.field-mode), kept per browser. */
+function useFieldMode(): [boolean, () => void] {
+  const [on, setOn] = useState(() => typeof window !== "undefined" && readFlag(FIELD_MODE_KEY, false));
+  useEffect(() => {
+    document.body.classList.toggle("field-mode", on);
+    writeFlag(FIELD_MODE_KEY, on);
+  }, [on]);
+  return [on, useCallback(() => setOn((v) => !v), [])];
+}
+
+/** Whether the Workflow map is shown (Hide map / Show map), kept per browser. */
+function useMapOpen(): [boolean, () => void] {
+  const [on, setOn] = useState(() => typeof window === "undefined" || readFlag(MAP_OPEN_KEY, true));
+  useEffect(() => writeFlag(MAP_OPEN_KEY, on), [on]);
+  return [on, useCallback(() => setOn((v) => !v), [])];
+}
+
+/** Call `f` with the element once it is on screen (a step that has just been picked renders on the next frames). */
+function whenShown(id: string, f: (el: HTMLElement) => void, tries = 60): void {
+  const el = document.getElementById(id);
+  if (el) f(el);
+  else if (tries > 0) window.requestAnimationFrame(() => whenShown(id, f, tries - 1));
+}
+
+/** "Open desk file or dam.json…" from the palette: the visible desk-file chooser's own file input. */
+function openDeskFilePicker(show: () => void): void {
+  show();
+  const pick = (tries: number) => {
+    const input = [...document.querySelectorAll<HTMLInputElement>('[data-testid="desk-open"]')].find((i) => i.offsetParent !== null);
+    if (input) input.click();
+    else if (tries > 0) window.requestAnimationFrame(() => pick(tries - 1));
+  };
+  pick(30);
+}
+
 export function Desk() {
   const dams = useDesk((s) => s.dams);
   const activeId = useDesk((s) => s.activeId);
@@ -165,6 +234,9 @@ export function Desk() {
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<"desk" | "batch">("desk");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [field, toggleField] = useFieldMode();
+  const [mapOpen, toggleMap] = useMapOpen();
   // What "Open in desk" did (selected an existing record or added one), shown once over the desk.
   const [openNote, setOpenNote] = useState<string | null>(null);
   const saveBlocked = useSaveStatus((s) => s.blocked);
@@ -182,6 +254,117 @@ export function Desk() {
   const dam = activeDam({ dams, activeId });
   const result = useMemo(() => analyze(dam), [dam]);
   useResultsSync(dam, result);
+  const recordAnalysis = useAnalysisOfRecord(dam, result).result;
+
+  // Top tabs (Lumo's concept, 2026-11-21): every step belongs to one tab (pipeline.ts), so the tab is read from the
+  // step and the left rail and the tabs cannot disagree. Workflow goes back to the last Workflow step used.
+  const lastWorkflow = useRef<StepId | null>(null);
+  useEffect(() => {
+    if (tabForStep(step) === "workflow") lastWorkflow.current = step;
+  }, [step]);
+  const tab: TabId | null = view === "batch" ? null : tabForStep(step);
+  const goStep = useCallback(
+    (s: StepId) => {
+      setView("desk");
+      setStep(s);
+    },
+    [setStep],
+  );
+  const goTab = useCallback(
+    (t: TabId) => goStep(stepForTab(t, lastWorkflow.current, firstOpenWorkflowStep(dam, recordAnalysis))),
+    [goStep, dam, recordAnalysis],
+  );
+  // Run…: the plugin run panel on the Export & Hand-off tab, scrolled into view with its first button focused. It
+  // starts nothing: screening and the flood model need the panel's work folder, DEM and model fields first.
+  const openRun = useCallback(() => {
+    goStep("report");
+    whenShown("handoff-panel", (el) => {
+      el.scrollIntoView({ block: "start", behavior: "smooth" });
+      el.querySelector<HTMLButtonElement>('[data-testid="handoff-actions"] button:not(:disabled)')?.focus({ preventScroll: true });
+    });
+  }, [goStep]);
+  const startJob = useCallback(
+    (path: string) => {
+      goStep("report");
+      requestJob(path);
+      whenShown("handoff-panel", (el) => el.scrollIntoView({ block: "start", behavior: "smooth" }));
+    },
+    [goStep],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isPaletteShortcut(e)) return;
+      e.preventDefault();
+      setPaletteOpen((o) => !o);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const jobBusy = useJobStatus((s) => s.busy);
+  const [server, setServer] = useState(false);
+  useEffect(() => setServer(hasDesktopServer()), []);
+  const commands = useMemo<Command[]>(() => {
+    const noServer = server ? undefined : "needs the desk server (bin/damit-desk)";
+    const list: Command[] = [
+      ...TABS.map((t) => ({ id: `tab-${t.id}`, group: "Views", label: `Go to ${t.label}`, run: () => goTab(t.id) })),
+      ...STEPS.map((s, i) => ({
+        id: `step-${s.id}`,
+        group: "Steps",
+        label: `Step ${i + 1}: ${s.label}`,
+        hint: STEP_DONE[s.id as StepId](dam, recordAnalysis) ? "complete" : s.id === step ? "current" : undefined,
+        keywords: ["go", "step"],
+        run: () => goStep(s.id as StepId),
+      })),
+      { id: "run", group: "Run", label: "Run…", hint: "open the DamIT plugin run panel", keywords: ["screening", "flood model", "classify", "pipeline"], run: openRun },
+      {
+        id: "check",
+        group: "Run",
+        label: "Check QGIS hand-off",
+        hint: noServer ?? (jobBusy ? "a plugin job is running" : "finds qgis_process and the 4 algorithms; runs no dam"),
+        keywords: ["engine", "qgis", "algorithms"],
+        disabled: !server || jobBusy,
+        run: () => startJob("/api/check"),
+      },
+      {
+        id: "handoff",
+        group: "Run",
+        label: "Write the dam folder (hand-off)",
+        hint: noServer ?? (jobBusy ? "a plugin job is running" : "the folder the DamIT plugins read"),
+        keywords: ["write", "hand-off", "handoff", "package", "folder"],
+        disabled: !server || jobBusy,
+        run: () => startJob("/api/folder"),
+      },
+      {
+        id: "save",
+        group: "Desk",
+        label: "Save desk to file",
+        keywords: ["backup", "export"],
+        run: () => {
+          setView("desk");
+          void saveDeskFile().then((r) => setOpenNote(r.note ?? r.error ?? null));
+        },
+      },
+      { id: "open", group: "Desk", label: "Open desk file or dam.json…", keywords: ["import", "load"], run: () => openDeskFilePicker(() => setView("desk")) },
+      { id: "new", group: "Desk", label: "New dam", run: () => (setView("desk"), add()) },
+      { id: "batch", group: "Desk", label: "Batch…", hint: "screen many dams", run: () => setView("batch") },
+      { id: "settings", group: "Desk", label: "Settings", hint: "shared starting values", keywords: ["defaults", "preferences"], run: () => setSettingsOpen(true) },
+      { id: "field", group: "Desk", label: field ? "Field mode: turn off" : "Field mode: turn on", hint: "dark colours for low light", keywords: ["dark", "theme", "night"], run: toggleField },
+      ...dams.map((d) => ({
+        id: `dam-${d.id}`,
+        group: "Dams",
+        label: `Open dam: ${d.name}`,
+        hint: d.id === dam.id ? "open now" : d.nid,
+        run: () => (setView("desk"), select(d.id)),
+      })),
+    ];
+    return list;
+  }, [server, jobBusy, goTab, goStep, openRun, startJob, dam, recordAnalysis, step, dams, field, toggleField, add, select]);
+  const reviewFlags = useMemo(
+    () => [...datumFlags(recordAnalysis), ...floodFlags(recordAnalysis)].filter((w) => w.severity !== "info").length,
+    [recordAnalysis],
+  );
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -198,54 +381,24 @@ export function Desk() {
           dam&rsquo;s terrain layer to free space.
         </div>
       ) : null}
-      <header className="border-b border-line bg-card">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-4">
-          <div className="flex items-center gap-3">
-            <img
-              src={damitWordmark}
-              alt="DaMiT"
-              height={32}
-              width={117}
-              className="h-8 w-auto shrink-0"
-            />
-            <div>
-              <p className="text-xs tracking-widest text-muted uppercase">Dam breach desk</p>
-              <h1 className="text-2xl leading-none">Desk</h1>
-            </div>
-          </div>
-          <p className="max-w-xl text-sm text-muted">
-            One window for screening, a breach run and classification. Elevations, breach, and the map update as you edit.
-            The flood model (LISFLOOD-FP, then ANUGA or HEC-RAS if chosen) runs through the DamIT plugins from the Report
-            step; the desk&apos;s own screen is not a model run, and nothing here assigns an official hazard class.
-          </p>
-          <div className="flex gap-2 sm:ml-auto" role="group" aria-label="View">
-            {(["desk", "batch"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={view === v}
-                onClick={() => setView(v)}
-                className={"h-11 rounded-sm border px-4 text-sm " + (view === v ? "border-water bg-water text-card" : "border-line bg-card text-ink")}
-              >
-                {v === "desk" ? "One dam" : "Batch"}
-              </button>
-            ))}
-            <button
-              type="button"
-              aria-expanded={settingsOpen}
-              onClick={() => setSettingsOpen((o) => !o)}
-              data-testid="settings-toggle"
-              className={"h-11 rounded-sm border px-4 text-sm " + (settingsOpen ? "border-water bg-water text-card" : "border-line bg-card text-ink")}
-            >
-              Settings
-            </button>
-          </div>
-        </div>
-      </header>
+      <DeskHeader
+        version={CREST_VERSION}
+        shortcut={shortcutLabel(typeof navigator === "undefined" ? "" : navigator.platform || navigator.userAgent)}
+        onPalette={() => setPaletteOpen(true)}
+        batch={view === "batch"}
+        onBatch={() => setView((v) => (v === "batch" ? "desk" : "batch"))}
+        onRun={openRun}
+        settingsOpen={settingsOpen}
+        onSettings={() => setSettingsOpen((o) => !o)}
+        field={field}
+        onField={toggleField}
+      />
+      <DeskTabs tab={tab} onTab={goTab} reviewFlags={reviewFlags} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
 
       {view === "batch" ? (
-        <main className="mx-auto w-full max-w-6xl min-w-0 px-4 py-4">
+        <main className="mx-auto w-full max-w-[1600px] min-w-0 px-4 py-4">
           <Suspense fallback={<p className="text-sm text-muted">Opening the batch screen…</p>}>
             <BatchScreen
               onOpen={(note) => {
@@ -256,7 +409,7 @@ export function Desk() {
           </Suspense>
         </main>
       ) : (
-      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-0 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-[1600px] min-w-0 gap-0 lg:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="min-w-0 border-b border-line bg-card lg:border-r lg:border-b-0">
           <div className="flex items-center justify-between px-4 pt-4">
             <h2 className="text-base">Dams</h2>
@@ -315,13 +468,28 @@ export function Desk() {
           {/* Map-centric redesign (matches Damit Crest PR #148): the workflow moves from a horizontal
               tab strip to a persistent three-pane layout — pipeline rail left, step content centre,
               inspector right. The old tab nav is retired; states show prerequisite problems before
-              the jump instead of surfacing them as late errors. */}
-          <div className="grid min-w-0 gap-4 xl:grid-cols-[210px_minmax(0,1fr)_280px]">
+              the jump instead of surfacing them as late errors. 2026-11-21 (Lumo's concept): the top
+              tabs pick the view (each step is in one tab), the Workflow centre leads with the flood
+              map when the record has a flood layer, and the Dashboard tab uses the full width. */}
+          <div
+            role="tabpanel"
+            id="desk-tabpanel"
+            aria-labelledby={tab ? `tab-${tab}` : undefined}
+            data-tab={tab ?? ""}
+            className={
+              "grid min-w-0 gap-4 " +
+              (tab === "dashboard" ? "xl:grid-cols-[210px_minmax(0,1fr)]" : "xl:grid-cols-[210px_minmax(0,1fr)_280px]")
+            }
+          >
             <div className="min-w-0 flex flex-col gap-3 xl:order-1">
               <SituationStrip dam={dam} result={result} />
-              <StepRail dam={dam} step={step} setStep={setStep} />
+              <StepRail dam={dam} result={recordAnalysis} step={step} setStep={setStep} />
             </div>
-            <div className="min-w-0 flex flex-col xl:order-2">
+            <div className="min-w-0 flex flex-col gap-4 xl:order-2">
+          {/* Guided setup and Flood draw on their own map; the other Workflow steps lead with the flood map. */}
+          {tab === "workflow" && step !== "setup" && step !== "flood" ? (
+            <WorkflowMap dam={dam} deskResult={result} open={mapOpen} onToggle={toggleMap} />
+          ) : null}
           {step === "setup" ? (
             <HybridSetup
               dam={dam}
@@ -347,9 +515,11 @@ export function Desk() {
 
           <StepNav step={step} setStep={setStep} blocked={step === "record" ? missingForNext(dam) : []} />
             </div>
-            <div className="min-w-0 xl:order-3">
-              <InspectorPanel dam={dam} result={result} step={step} />
-            </div>
+            {tab === "dashboard" ? null : (
+              <div className="min-w-0 xl:order-3">
+                <InspectorPanel dam={dam} result={result} step={step} />
+              </div>
+            )}
           </div>
 
           <div className="mt-6 lg:hidden">
@@ -367,8 +537,9 @@ export function Desk() {
         </main>
       </div>
       )}
+      <DeskStatusBar dam={dam} analysis={recordAnalysis} />
       <footer className="border-t border-line bg-card">
-        <div className="mx-auto max-w-6xl px-4 py-3 text-xs text-muted">
+        <div className="mx-auto max-w-[1600px] px-4 py-3 text-xs text-muted">
           <details>
             <summary className="cursor-pointer">About DamIT Desk and its data sources</summary>
             <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -1620,6 +1791,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       handoff.busy = true;
       handoff.log = "Starting…\n";
       handoff.warning = "";
+      jobStarted(path);
       bump((n) => n + 1);
       // Classify: the downstream receptors (and drawn area) go to damit:classify, so the chosen preset or custom
       // methods judge them. The keys tie the result to this choice and these receptors.
@@ -1657,6 +1829,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         handoff.busy = false;
         handoff.log =
           "This page has no DamIT Desk server, so QGIS was not started. Start the desk with bin/damit-desk (or bin\\damit-desk.cmd) and open the address it prints.";
+        jobNoServer();
         bump((n) => n + 1);
         return;
       }
@@ -1705,6 +1878,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
               handoffTimer = 0;
               handoff.busy = false;
               handoff.job = "";
+              jobFinished(path, found);
               bump((n) => n + 1);
             }
           } catch {
@@ -1713,6 +1887,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
             handoff.busy = false;
             handoff.job = "";
             handoff.log = "Lost the job log.";
+            jobFinished(path, null);
             bump((n) => n + 1);
           }
         }, 1000);
@@ -1720,11 +1895,14 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         // A response came back, so a server is there — surface its real error, not the generic "no server" text.
         handoff.busy = false;
         handoff.log = `The DamIT Desk server returned an error: ${(e as Error).message}`;
+        jobFinished(path, { ok: false });
         bump((n) => n + 1);
       }
     },
     [dam, result, files, update],
   );
+  // The command palette's "Check QGIS hand-off" and "Write the dam folder" start here, with this panel's fields.
+  useEffect(() => setJobStarter((p) => (handoff.busy ? undefined : void start(p as JobPath))), [start]);
 
   const cancel = useCallback(async () => {
     if (!handoff.job) return;
@@ -1739,7 +1917,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
   const btn =
     "inline-flex h-10 items-center rounded-sm border border-water bg-water px-3 text-sm text-card disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <div className="rounded-md border border-line bg-card p-4">
+    <div className="scroll-mt-4 rounded-md border border-line bg-card p-4" id="handoff-panel" data-testid="handoff-panel">
       <h3 className="text-lg">DamIT plugins in QGIS</h3>
       <p className="mt-1 text-sm text-muted">
         Writes the dam folder the DamIT plugins read, including the LISFLOOD package and the flood strip. Get layers
@@ -1902,7 +2080,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           </select>
         </label>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2" data-testid="handoff-actions">
         <button
           type="button"
           className="inline-flex h-10 items-center rounded-sm border border-water bg-paper px-3 text-sm text-water disabled:cursor-not-allowed disabled:opacity-50"
@@ -2074,21 +2252,6 @@ function AoiNote({ flood }: { flood: ReturnType<typeof analyze>["flood"] }) {
 
 // Pipeline stage status for the rail: a step is done when its defining output exists on the
 // record, blocked when a hard prerequisite is missing (nid-dams.ts), else pending/current.
-const RAIL_DONE: Partial<Record<StepId, (d: DamRecord) => boolean>> = {
-  setup: (d) => Number.isFinite(d.heightFt) && Number.isFinite(d.storageAcFt),
-  record: (d) => Number.isFinite(d.crestFt) && Boolean(d.statedDatum),
-  breach: (d) => Number.isFinite(d.streambedFt),
-};
-
-function railState(id: StepId, dam: DamRecord, current: StepId): "done" | "current" | "blocked" | "todo" {
-  if (id === current) return "current";
-  if (id === "record" && missingForNext(dam).length > 0) return "blocked";
-  const done = RAIL_DONE[id];
-  if (done && done(dam)) return "done";
-  if (id === "setup" && missingForNext(dam).length > 0) return "blocked";
-  return "todo";
-}
-
 const RAIL_MARK: Record<"done" | "current" | "blocked" | "todo", { glyph: string; cls: string; label: string }> = {
   done: { glyph: "✓", cls: "bg-water text-card border-water", label: "Complete" },
   current: { glyph: "▶", cls: "bg-card text-water border-water", label: "Current step" },
@@ -2103,11 +2266,11 @@ const RAIL_MARK: Record<"done" | "current" | "blocked" | "todo", { glyph: string
  * prerequisite problem is visible in navigation instead of surfacing as an error later.
  * Non-colour marks keep the state readable in grayscale and field mode.
  */
-function StepRail({ dam, step, setStep }: { dam: DamRecord; step: StepId; setStep: (s: StepId) => void }) {
+function StepRail({ dam, result, step, setStep }: { dam: DamRecord; result: ReturnType<typeof analyze>; step: StepId; setStep: (s: StepId) => void }) {
   return (
     <nav className="flex min-w-0 flex-col gap-0.5" aria-label="Pipeline" data-testid="step-rail">
       {STEPS.map((s, i) => {
-        const st = railState(s.id as StepId, dam, step);
+        const st = railState(s.id as StepId, dam, result, step);
         const m = RAIL_MARK[st];
         const on = step === s.id;
         return (
