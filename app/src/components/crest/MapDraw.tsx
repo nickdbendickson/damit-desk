@@ -16,6 +16,7 @@ import { ND911_ATTRIBUTION_SHORT, type Nd911Point, type Nd911Row } from "@/lib/c
 import { OUTLINE_LABEL, terrainInfo, type TerrainOutline } from "@/lib/crest/outline";
 import { PLSS_ATTRIBUTION_SHORT, type PlssRow } from "@/lib/crest/plss";
 import type { DamGeometry, GeoJSONFeature } from "@/lib/crest/types";
+import { useLegendOpen } from "@/lib/crest/legend-open";
 
 const LAYERS = basemaps(import.meta.env);
 
@@ -432,6 +433,7 @@ function StripLegend({
 }) {
   const showOutline = !!outline && outlineOn;
   const used = new Set((showOutline ? outline : strip)?.features.map((f) => f.properties.band) ?? []);
+  const [open, toggle] = useLegendOpen("workflow-map");
   return (
     <div
       data-testid="flood-strip-legend"
@@ -452,7 +454,10 @@ function StripLegend({
         color: "#1f2a30",
       }}
     >
-      {strip ? (
+      <button type="button" className="legend-toggle" aria-expanded={open} onClick={toggle} data-testid="legend-collapse" style={{ marginBottom: open ? 4 : 0 }}>
+        Legend
+      </button>
+      {!open ? null : strip ? (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <LegendToggle on={on} setOn={setOn} label="Show the flood strip">

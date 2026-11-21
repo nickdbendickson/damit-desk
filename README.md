@@ -39,6 +39,10 @@ and start it again for a new link. Leave the terminal open while you use the des
 random port for that session; use the address it prints. Your saved dams are kept by the browser per address, so the
 dams from the usual 47241 address are not shown in that session. Close the other copy and start again to get them back.
 
+**A fixed port of your own.** Set `DAMIT_PORT=48001` (or `"port": 48001` in `damit-desk-settings.json` in the
+settings folder) to always use that port. A fixed port is never swapped for a random one: if it is busy the desk says
+so and stops, so your saved dams always stay at the same address. Use a port from 1024 to 65535.
+
 ### Linux browser mode: what is different
 
 - **Choosing a local DEM, the Report step's file fields and the exports folder** use the desk's own file chooser,

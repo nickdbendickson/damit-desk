@@ -13,6 +13,18 @@ export type PaletteCommand = {
   disabled?: boolean;
 };
 
+/**
+ * Palette commands for the desk's everyday actions (Absaraka desk test 2026-11-21: "classify" found only "Run…", and
+ * "dem" or "import run" found nothing). desk.tsx adds what each one runs, and disables the server ones without it.
+ */
+export const DESK_ACTIONS: readonly PaletteCommand[] = [
+  { id: "classify", group: "Run", label: "Classify (damit:classify)", hint: "suggested class from the real structures, roads and rail", keywords: ["hazard", "class", "receptors", "classification"] },
+  { id: "screening", group: "Run", label: "Run screening", hint: "writes the dam folder, then the screening chain (stops at its time limit)", keywords: ["screen", "runchain", "preliminary"] },
+  { id: "import-run", group: "Run", label: "Import a model run…", hint: "LISFLOOD-FP or Runner rasters: depth, velocity, arrival", keywords: ["lisflood", "raster", "results", "hmax", "load"] },
+  { id: "choose-dem", group: "Terrain", label: "Choose a local DEM…", hint: "a .vrt or .tif on this computer instead of USGS 3DEP", keywords: ["dem", "terrain", "vrt", "lidar", "elevation"] },
+  { id: "build-terrain", group: "Terrain", label: "Build the terrain layer", hint: "routed terrain flood on the chosen terrain", keywords: ["outline", "inundation", "terrain", "flood", "rebuild"] },
+];
+
 const norm = (s: string) =>
   s
     .toLowerCase()

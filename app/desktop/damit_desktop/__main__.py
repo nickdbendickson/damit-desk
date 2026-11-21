@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from damit_desktop import WEB_DIR_NAME
 from damit_desktop import browser_io
+from damit_desktop import classify_receptors
 from damit_desktop import defaults
 from damit_desktop import localdem
 from damit_desktop import nid
@@ -50,6 +51,35 @@ from damit_desktop.qgis_run import (
 #: Crest's 47231 so both apps can run side by side.
 #: If it is taken, a random port is used for that session.
 PREFERRED_PORT = 47241
+
+
+class PortBusyError(OSError):
+    """The fixed port asked for (DAMIT_PORT or "port" in the settings file) is in use."""
+
+
+def configured_port(settings_file: Path | None = None, env: dict | None = None) -> int | None:
+    """The fixed port the user asked for: DAMIT_PORT, else "port" in damit-desk-settings.json; None = the default
+    (PREFERRED_PORT, or a random port when it is busy). A value that is not 1024-65535 is ignored with a message."""
+    env = os.environ if env is None else env
+    raw = (env.get("DAMIT_PORT") or "").strip()
+    where = "DAMIT_PORT"
+    if not raw and settings_file is not None:
+        try:
+            data = json.loads(Path(settings_file).read_text(encoding="utf-8"))
+            raw = str(data.get("port") or "").strip() if isinstance(data, dict) else ""
+            where = f"\"port\" in {Path(settings_file).name}"
+        except (OSError, ValueError):
+            raw = ""
+    if not raw:
+        return None
+    try:
+        port = int(raw)
+    except ValueError:
+        port = -1
+    if not 1024 <= port <= 65535:
+        print(f"DamIT Desk: {where} = {raw!r} is not a port from 1024 to 65535; using the default.", flush=True)
+        return None
+    return port
 
 TITLE = "DamIT Desk"
 
@@ -451,6 +481,17 @@ class _Handler(SimpleHTTPRequestHandler):
             info["notices"] = list(STORAGE_NOTICES)
             self._send(200, json.dumps(info).encode(), "application/json")
             return
+        if parsed.path == "/api/classify/receptors":
+            # The real receptors damit:classify judged (its GeoPackage), with names and a point to zoom to.
+            self._reply(lambda: classify_receptors.read_receptors(
+                classify_receptors.gpkg_path((parse_qs(parsed.query).get("gpkg") or [""])[0])))
+            return
+        if parsed.path == "/api/handoff/autofill":
+            # Paths for the hand-off form: the chosen DEM, the imported run's rasters found by name, a rail lookup CSV.
+            q = parse_qs(parsed.query)
+            names = [n for n in (q.get("names") or [""])[0].split(",") if n.strip()]
+            self._reply(lambda: browser_io.autofill(SETTINGS_FILE, names))
+            return
         if parsed.path == "/api/job":
             job_id = (parse_qs(parsed.query).get("id") or [""])[0]
             found = job_snapshot(job_id)
@@ -604,7 +645,7 @@ class _Handler(SimpleHTTPRequestHandler):
         """Browser mode (browser_io.py): list a folder for the desk's file chooser, the chosen DEM, the exports folder."""
         if path == "/api/fs/list":
             mode = (query.get("mode") or ["dem"])[0]
-            self._reply(lambda: browser_io.list_dir((query.get("dir") or [""])[0] or None, "folder" if mode == "folder" else "dem",
+            self._reply(lambda: browser_io.list_dir((query.get("dir") or [""])[0] or None, mode if mode in ("folder", "csv") else "dem",
                                                      SETTINGS_FILE))
         elif path == "/api/dem/choice":
             self._reply(lambda: browser_io.dem_state(SETTINGS_FILE))
@@ -690,8 +731,9 @@ class _Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTPServer:
-    """Serve the bundle on 127.0.0.1 in a daemon thread. Port 0 means any free port."""
+def serve(root: Path | None = None, port: int = PREFERRED_PORT, fixed: bool = False) -> ThreadingHTTPServer:
+    """Serve the bundle on 127.0.0.1 in a daemon thread. Port 0 means any free port. fixed (a port the user set):
+    a busy port is an error (PortBusyError) instead of a random port, so the saved records' address never changes."""
     root = check_bundle(root)
     bundle_handler = type("_BundleHandler", (_Handler,), {"security_headers": load_security_headers(root)})
     handler = partial(bundle_handler, directory=str(root))
@@ -700,6 +742,9 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTP
     except OSError as e:
         if port == 0 or e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1), 10048):
             raise
+        if fixed:
+            raise PortBusyError(e.errno, f"DamIT Desk: port {port} (set with DAMIT_PORT or \"port\" in the settings "
+                                         "file) is busy: close the program using it, or choose another port.") from e
         print(f"DamIT Desk: port {port} is busy (another DamIT Desk, or another program). Using a random port for this "
               "session: records saved in the browser are kept per address, so the ones from port "
               f"{port} are not shown until the desk runs on {port} again.", flush=True)
@@ -1044,7 +1089,12 @@ def main() -> None:
     qgis_run.SETTINGS_DIR = store  # damit-handoff.json is read from here (docs/HANDOFF.md)
     qgis_run.DESK_SETTINGS_FILE = SETTINGS_FILE  # the DEM chosen in the desk goes to the plugins too
     nid.NID_DIR = store / "nid"  # the per-state NID cache (nid.py), outside the install and any repository
-    server = serve()
+    fixed = configured_port(SETTINGS_FILE)
+    try:
+        server = serve(port=fixed or PREFERRED_PORT, fixed=fixed is not None)
+    except PortBusyError as e:
+        print(e.strerror, flush=True)
+        sys.exit(2)
     # printed without the token: opening this plain address elsewhere shows the desk, but its /api/ calls are refused
     url = f"http://127.0.0.1:{server.server_address[1]}/index.html"
     open_url = desk_url(server.server_address[1])

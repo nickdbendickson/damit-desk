@@ -286,12 +286,13 @@ export function boundsOf(fc: FloodStrip | null): Bounds | null {
   return Number.isFinite(w) ? { west: w, south: s, east: e, north: n } : null;
 }
 
-export type LayerKey = "depth" | "arrival" | "structures" | "hillshade" | "runnerOverlay";
+export type LayerKey = "depth" | "arrival" | "structures" | "classify" | "hillshade" | "runnerOverlay";
 
 export const LAYER_DEFS: [Exclude<LayerKey, "runnerOverlay">, string][] = [
   ["depth", "Max depth"],
   ["arrival", "Arrival time"],
   ["structures", "Structures"],
+  ["classify", "Classify receptors"],
   ["hillshade", "Hillshade"],
 ];
 
@@ -299,6 +300,7 @@ export const DEFAULT_LAYERS: Record<LayerKey, boolean> = {
   depth: true,
   arrival: false,
   structures: true,
+  classify: true,
   hillshade: false,
   runnerOverlay: false,
 };

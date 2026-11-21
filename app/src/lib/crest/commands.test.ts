@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { filterCommands, isPaletteShortcut, moveActive, shortcutLabel, type PaletteCommand } from "./commands.ts";
+import { DESK_ACTIONS, filterCommands, isPaletteShortcut, moveActive, shortcutLabel, type PaletteCommand } from "./commands.ts";
 
 const C: PaletteCommand[] = [
   { id: "tab-workflow", group: "Views", label: "Go to Workflow" },
@@ -72,5 +72,17 @@ describe("the new desk chrome's labels", () => {
   it("the tabs are a tablist the arrow keys move along", () => {
     const src = read(files[1]);
     for (const a of ['role="tablist"', 'role="tab"', "aria-selected", '"ArrowRight"', '"ArrowLeft"', 'role="progressbar"']) assert.ok(src.includes(a), a);
+  });
+});
+
+describe("desk actions in the palette (Absaraka desk test 2026-11-21)", () => {
+  it("classify, dem and import run each find their command", () => {
+    const all = [...C, ...DESK_ACTIONS];
+    assert.equal(filterCommands(all, "classify")[0].id, "classify");
+    assert.equal(filterCommands(all, "dem")[0].id, "choose-dem");
+    assert.equal(filterCommands(all, "import run")[0].id, "import-run");
+    assert.ok(filterCommands(all, "screening").some((c) => c.id === "screening"));
+    assert.ok(filterCommands(all, "terrain layer").some((c) => c.id === "build-terrain"));
+    for (const a of DESK_ACTIONS) assert.ok(!/\.\.\./.test(a.label), `${a.label} uses the Unicode …`);
   });
 });
