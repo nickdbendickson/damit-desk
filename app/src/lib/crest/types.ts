@@ -190,6 +190,19 @@ export type DamRecord = {
 };
 
 /** What damit:classify returned (qgis_run.run_classify), stored on the record by the Report step. */
+/** One criteria hit of a damit:classify run: method (criterion), class it implies, rule or advisory, and the finding. */
+export type HazardHit = {
+  method: string;
+  ordinal: number | null;
+  label: string;
+  strength: string;
+  reason: string;
+  scenario: string;
+  /** Receptor ids the hit was scored for ("road:240"), first five; `receptorCount` is all of them. */
+  receptors: string[];
+  receptorCount: number;
+};
+
 export type HazardResult = {
   /** CLASS: the suggested class in the chosen preset's labels (generic labels in custom mode). */
   suggestedClass: string;
@@ -205,6 +218,12 @@ export type HazardResult = {
   ranMode?: string | null;
   /** The hits that set the class (method, class, reason), first few. */
   driving?: { method: string; label: string; reason: string; receptors: number }[];
+  /**
+   * Every criteria hit damit:classify scored (damit_hazard_report.json "hits"), strongest class first, at most 300
+   * (qgis_run.report_hits); `hitsTotal` is how many the run had. Absent in results from before 2026-11-21.
+   */
+  hits?: HazardHit[];
+  hitsTotal?: number;
   warnings?: number;
   /** Receptor features sent, by layer. */
   layers?: Record<string, number>;

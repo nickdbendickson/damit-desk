@@ -12,7 +12,7 @@
     "src/components/crest/CommandPalette.tsx": "507373219085cc33fd94f66b922d650f6e392402f5c3b29c6f1bc35fc850b0ab",
     "src/components/crest/Dashboard.tsx": "6f1aa48c0f1ca1a60d69dadec5bbb35b36a7590cca5dea3ca53206b32f813716",
     "src/components/crest/DashboardMap.tsx": "e3bc3432d2d9bce93e76bf203c43adc825c6d3a8887c322e2dc56a3368cd5a9d",
-    "src/components/crest/desk.tsx": "40b73ab065369c0c65d547e9351d762c4c72cb2e0ca130cc057778ffe8e91395",
+    "src/components/crest/desk.tsx": "f7fbcc8138061e209759e38fbb9ec5c720139d3d60ecedb334ff6cba3a7c332a",
     "src/components/crest/DeskChrome.tsx": "17e90a6fe9576ad028ab2827bb84ae4feb0c0a63c6f1ff5e9f89669351436569",
     "src/components/crest/DeskFiles.tsx": "09879c37af386ff0953faa96a5ec9b7910681343eeab1a991b56477eb0bb97b5",
     "src/components/crest/extent-layer.ts": "6f804a5472bd631557bc544451ad19ceb5b1944da36f3f2607ba52caa8490d1d",
@@ -22,9 +22,11 @@
     "src/components/crest/MapDraw.tsx": "46e19a4ace11098b7adc8825fa10267607c45349a1904866c754eeb2ddd8e349",
     "src/components/crest/NidDamPicker.tsx": "be9befcb670ab0e005c43ad92cc31d3d1d4e6f3579d86391df4ded017746608a",
     "src/components/crest/PaperReport.tsx": "07b6e9871321a26e97ca153ff90493ac0e80505711d52a3e0e9105b4d2ed95ef",
+    "src/components/crest/RailChecklist.tsx": "65e7fa83ad7302a4869f4e503b9d26360372f437a360b3b51305e0ccd87c6719",
     "src/components/crest/results-flow.ts": "c8d62ee1e85c87e8e20e819303357b984f1bb43ffdd9446759b7f6a53adc48d7",
     "src/components/crest/ResultsMap.tsx": "11cc19dff764d9de5650f7bcc174f2b84b3cd852c17b79cd7bcb9b59531762b8",
     "src/components/crest/ResultsStep.tsx": "9f69a1f0fd005ed9f0234edf4df9421956596da9ffa8358777e8d6af49e716fd",
+    "src/components/crest/ReviewSummary.tsx": "226ebc322dc680ca826791274d10b2f6cf168708f6f193ba2c982de5de339c5a",
     "src/components/crest/ServerFilePicker.tsx": "5aefb362d03c6e38701efa4f48b8f4dd92e807892cefa5113eba6ee9435c351a",
     "src/components/crest/SettingsPanel.tsx": "bd86b5ef84e4b588ea170f0e70974e63950e0b55bda65912f0ced8de6560b387",
     "src/components/crest/TerrainSource.tsx": "256f46f063812441adada5e7c7537a103513ba5bca329c9356d08e8f66998571",
@@ -42,6 +44,7 @@
     "src/lib/crest/batch.ts": "faad09ea433d591cfa9895d942939ed3bfbb44a1f163e136abe814efc396556b",
     "src/lib/crest/breach-point.ts": "5fa15fdc2991aae2d59ece829d4a5117c7f1ab609c053563b0e2c8e2583d0d40",
     "src/lib/crest/breach.ts": "ee4a3fca420c0639128ac031ab5d219e7541c8be2421a0b2c98de68b17aea0e7",
+    "src/lib/crest/checklist.ts": "316a8ef5c60b66a93452a56578b9fac99b483943827cf44a86028eb5f8572962",
     "src/lib/crest/classify-receptors.ts": "3c036cf07f53f96b756fc4e1d4669699b3ded34c373f6d106a60c3d7a94d0509",
     "src/lib/crest/commands.ts": "08dc0846d51b7f4653b7d41c1b02384ec61d292d6e8b04e2a153a00eae77fd1e",
     "src/lib/crest/csv.ts": "e31f43d098c0081ed71a91b1eb12cd60a3e571bc8351a7ff06acbf1162b6a815",
@@ -93,6 +96,7 @@
     "src/lib/crest/results-client.ts": "66a19951576a86fe36ca5577cb097c6259256e1d656d1d3e46ae9152815cce9b",
     "src/lib/crest/results-store.ts": "4f0dcff4f61fcf7d853ae841dd15fef46c128b594a6aa5ac20ed17932c254efc",
     "src/lib/crest/results.ts": "36d19971844b0dbe6d57df0cb4817c597b09b813e41e810aa41ad57bee0eaf38",
+    "src/lib/crest/review-summary.ts": "35237763585c259207f3914f111f12645874b003992396fc10afc635e69374dc",
     "src/lib/crest/routed-flood.ts": "5d27ef325886d8d8496c50b16e66eac56fa453f0fb6cc708f0e229ca6c31e87c",
     "src/lib/crest/routing.ts": "ba41db5e2b08e6daf72279ff90daba06183137c7432f477483319c570f73440c",
     "src/lib/crest/samples.ts": "76a76692df818ba4e7c9a8561ae4b41e70892dfd61ac9f84864cd83bc476bf2b",
@@ -109,6 +113,6 @@
     "src/lib/crest/vertcon.ts": "23af97394096a8ba0c6ac02c74e5d15398e6359c770fac31ee5e28b009d83dd2",
     "src/lib/crest/viewexport.ts": "3c5221ec6e78aae43a7c6deedd27f86abfe309bf848c08ca8d067c7246c61da7",
     "src/lib/crest/warnings.ts": "409483c146ec8d2e09eed8af980d36fcb6ab35b8e8cabdc7476537a819edb5ea",
-    "src/styles.css": "26d691698944e5cf06d21c627629b829ef123677ecd07c1f6207efc7855d12a4"
+    "src/styles.css": "3d92e4187e9e49ba9aecc2d6eb7bead63efa9092614a4069dab1009081928f69"
   }
 }

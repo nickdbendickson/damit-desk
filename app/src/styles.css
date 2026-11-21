@@ -614,3 +614,17 @@ body.field-mode .text-amber { color: var(--flag-amber); }
 body.field-mode .border-amber { border-color: var(--flag-amber); }
 body.field-mode .bg-amber { background-color: var(--flag-amber); }
 body.field-mode .dash-root .chip.legacy { color: var(--flag-amber); }
+/* Guided setup's inline problems (2.4–2.7:1 with the light-theme red on the dark panel): the light flag red. */
+body.field-mode .hyb-root .hyb-step .err,
+body.field-mode .hyb-root .hyb-inline-error { color: var(--flag-red); }
+
+/* Fix… in the rail checklist (2026-11-21): the field it jumped to, outlined for two seconds. */
+.fix-flash {
+  outline: 3px solid var(--color-water);
+  outline-offset: 3px;
+  border-radius: 4px;
+  transition: outline-color 0.3s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fix-flash { transition: none; }
+}

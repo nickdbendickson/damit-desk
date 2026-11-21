@@ -1454,6 +1454,36 @@ EXTRA_RASTERS = (("VELOCITY", "velocityRaster"), ("DV", "dvRaster"), ("WSE", "ws
                  ("NONBREACH", "nonbreachRaster"), ("ARRIVAL", "arrivalRaster"))
 
 
+#: The most criteria hits the desk keeps with a dam (the Review tab's table); the report and GeoPackage keep them all.
+MAX_HITS = 300
+
+
+def report_hits(res: dict, labels: dict | None = None) -> tuple[list[dict], int]:
+    """damit:classify's criteria hits (damit_hazard_report.json "hits": method, class, strength, reason, scenario and
+    the receptor ids it was scored for), for the Review tab's table: one row per hit, strongest class first, at most
+    MAX_HITS, with the total. Read from the structured list, never from the report's text."""
+    labels = labels or {}
+    rows: list[dict] = []
+    for h in res.get("hits") or []:
+        if not isinstance(h, dict):
+            continue
+        cls = h.get("class")
+        ordinal = cls if isinstance(cls, int) and not isinstance(cls, bool) else None
+        recs = [str(r) for r in (h.get("receptors") or []) if isinstance(r, (str, int))]
+        rows.append({
+            "method": str(h.get("method") or "")[:40],
+            "ordinal": ordinal,
+            "label": str(labels.get(str(cls), labels.get(cls, cls)) if cls is not None else "")[:40],
+            "strength": str(h.get("strength") or "")[:20],
+            "reason": str(h.get("reason") or "")[:200],
+            "scenario": str(h.get("scenario") or "")[:20],
+            "receptors": recs[:5],
+            "receptorCount": len(recs),
+        })
+    rows.sort(key=lambda r: (-(r["ordinal"] if r["ordinal"] is not None else -1), r["strength"] != "rule"))
+    return rows[:MAX_HITS], len(rows)
+
+
 def read_hazard_report(out_dir: Path) -> dict | None:
     """The parts of damit:classify's damit_hazard_report.json the desk shows: which preset/mode it ran, the
     generic label, the hits that set the class and how many warnings it flagged. None when there is no report."""
@@ -1489,7 +1519,10 @@ def read_hazard_report(out_dir: Path) -> dict | None:
     hab = res.get("habitability") if isinstance(res.get("habitability"), dict) else {}
     tally = hab.get("tally") if isinstance(hab.get("tally"), dict) else {}
     wet = tally.get("wet_structures")
+    hits, hits_total = report_hits(res, labels)
     return {
+        "hits": hits,
+        "hitsTotal": hits_total,
         "impacted": impacted,
         "wetStructures": wet if isinstance(wet, int) and not isinstance(wet, bool) else None,
         "ranMode": cfg.get("mode"),
