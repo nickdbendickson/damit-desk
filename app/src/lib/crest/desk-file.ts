@@ -155,6 +155,7 @@ const READ: { [K in keyof Required<DamRecord>]: (v: unknown) => unknown } = {
   classification: (v) => (isObj(v) && (v.mode === "preset" || v.mode === "custom") ? v : undefined),
   hazardResult: (v) =>
     isObj(v) && [v.suggestedClass, v.classifiedAt, v.choiceKey, v.receptorKey, v.choiceText].every((x) => typeof x === "string") ? v : undefined,
+  screeningResult: (v) => (isObj(v) && (v.state === "done" || v.state === "partial" || v.state === "failed") && typeof v.at === "string" ? v : undefined),
 };
 
 /** Fields every record has: a present but unusable value in the file is worth a note. */

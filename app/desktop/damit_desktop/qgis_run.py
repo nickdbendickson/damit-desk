@@ -385,13 +385,32 @@ def _run(
 _LIVE_CHARS = _OUTPUT_HEAD_CHARS // 2
 
 
+#: qgis_process start-up notices that say nothing about the run (Absaraka desk test 2026-11-21: a PDAL plugin library
+#: error and GDAL's FutureWarning on every classify). Kept out of the job log; one line says how many were hidden.
+_NOISE = re.compile(
+    r"(Can't load library|cannot load library|Unable to load).*(pdal|libgflags)"
+    r"|libgflags\.so"
+    r"|FutureWarning: Neither gdal\.UseExceptions\(\) nor gdal\.DontUseExceptions\(\)"
+    r"|^\s*warnings\.warn\(\s*$", re.I)
+
+
+def is_noise(line: str) -> bool:
+    return bool(_NOISE.search(line or ""))
+
+
 def _run_logged(cmd: list[str], log, timeout: float | None, cancel: threading.Event | None = None,
                 env: dict[str, str] | None = None) -> tuple[int, str]:
     """_run with its output in the job log while it runs (the desk polls the log every second). Whatever was not
-    streamed (past _LIVE_CHARS, and the Stopped: note) is logged when the run ends. Returns _run's (code, text)."""
-    state = {"n": 0, "live": True, "sent": []}
+    streamed (past _LIVE_CHARS, and the Stopped: note) is logged when the run ends. Returns _run's (code, text).
+    Start-up notices (_NOISE) are not logged; the returned text keeps them."""
+    state = {"n": 0, "live": True, "sent": [], "hidden": 0}
 
     def on_line(line: str) -> None:
+        if is_noise(line):
+            state["hidden"] += 1
+            state["n"] += len(line)
+            state["sent"].append(line)
+            return
         if not state["live"]:
             return
         if state["n"] + len(line) > _LIVE_CHARS:
@@ -406,7 +425,12 @@ def _run_logged(cmd: list[str], log, timeout: float | None, cancel: threading.Ev
     sent = "".join(state["sent"])
     rest = text[len(sent):] if text.startswith(sent) else ("" if not sent else text)
     if rest.strip():
-        log(rest.strip("\n"))
+        kept = [ln for ln in rest.strip("\n").splitlines() if not is_noise(ln)]
+        state["hidden"] += len(rest.strip("\n").splitlines()) - len(kept)
+        if kept:
+            log("\n".join(kept))
+    if state["hidden"]:
+        log(f"({state['hidden']} QGIS start-up notice line(s) hidden: plugin library warnings that do not affect the result.)")
     return code, text
 
 
@@ -890,6 +914,15 @@ def read_package_screening(path: Path) -> dict | None:
     return block if isinstance(block, dict) else None
 
 
+def flag_text(flag) -> str:
+    """One screening flag in words: its message (and receptor), never a raw Python dict."""
+    if isinstance(flag, dict):
+        msg = str(flag.get("message") or flag.get("detail") or flag.get("code") or "flag").strip().rstrip(".")
+        rec = flag.get("receptor")
+        return f"{msg} ({rec})" if rec and str(rec) not in msg else msg
+    return str(flag)
+
+
 def _package_line(dam_id: str, block: dict) -> str:
     label = block.get("suggested_label")
     if not label:
@@ -901,7 +934,11 @@ def _package_line(dam_id: str, block: dict) -> str:
         text += "."
     flags = block.get("flags")
     if isinstance(flags, list) and flags:
-        text += " Flags: " + "; ".join(str(f) for f in flags[:6]) + "."
+        # The chain repeats a flag once per scenario (Absaraka: the same 3 receptors twice): each one once here.
+        words = list(dict.fromkeys(flag_text(f) for f in flags))
+        text += " Flags: " + "; ".join(words[:6]) + "."
+        if len(words) > 6:
+            text += f" (+{len(words) - 6} more in the package)"
     return text + " A screening suggestion, not an official hazard classification."
 
 
@@ -1657,6 +1694,15 @@ def run_classify(
         return {**base, "ok": False, "stopped": True}
     record = write_classify_record(folder, dam)
     out_dir = folder / "classify"
+    # The run DEM for WSE-consistent NoData depth (Absaraka desk test 2026-11-21: without it 219 structures on NoData
+    # cells next to water were scored dry). The DEM the hand-off panel or the desk chose; never the data folder's
+    # statewide DEM, which may not match the run.
+    terrain = dem_path(root, dam, source="none")
+    if terrain and "TERRAIN" in accepted:
+        log(f"Run DEM / terrain for NoData depth: {terrain} (the DEM chosen in the desk; units detected by {alg}).")
+    elif "TERRAIN" in accepted:
+        log("No DEM chosen: structures on NoData cells next to water are scored without ground (choose a DEM in the "
+            "desk or under DEM, the same one the flood model used).")
     values = {
         "PRESET": preset,
         "METHODS": choice["methods"],
@@ -1664,6 +1710,7 @@ def run_classify(
         "SCENARIOS": choice["scenarios"],
         "APPLY_ADVISORY": "true" if choice["advisory"] else None,
         "DEPTH": depth,
+        "TERRAIN": terrain,
         **{param: _raster(dam.get(key)) for param, key in EXTRA_RASTERS},
         **({"VELOCITY": _raster(str(folder / "Velocity (Max).tif"))} if from_folder and not _raster(dam.get("velocityRaster")) else {}),
         **{key: written["layers"].get(key) for key in RECEPTOR_LAYERS},

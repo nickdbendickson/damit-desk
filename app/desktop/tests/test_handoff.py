@@ -849,6 +849,33 @@ class RobustnessTests(unittest.TestCase):
             record = json.loads((folder / "dam.json").read_text(encoding="utf-8"))
             self.assertEqual(len(record["status"]), n, "every concurrent write must land its status entry")
 
+    def test_replace_retries_a_transient_access_denied(self):
+        # Windows CI: a replace racing another thread's replace fails with PermissionError for a moment.
+        from unittest import mock
+
+        from damit_desktop import handoff
+
+        with tempfile.TemporaryDirectory() as d:
+            tmp, dst = Path(d) / "a.part", Path(d) / "a.json"
+            tmp.write_text("{}", encoding="utf-8")
+            real = os.replace
+            calls = []
+
+            def flaky(a, b):
+                calls.append(1)
+                if len(calls) < 3:
+                    raise PermissionError(13, "Access is denied")
+                real(a, b)
+
+            with mock.patch.object(handoff.os, "replace", flaky):
+                handoff._replace(tmp, dst)
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(dst.exists())
+            tmp.write_text("{}", encoding="utf-8")
+            with mock.patch.object(handoff.os, "replace", side_effect=PermissionError(13, "Access is denied")):
+                with self.assertRaises(PermissionError):
+                    handoff._replace(tmp, dst, tries=2)
+
     # ---- H2: run output is kept head + tail only -------------------------------------------------------------
     def test_collect_bounded_keeps_head_and_tail_and_notes_the_drop(self):
         block = 8192

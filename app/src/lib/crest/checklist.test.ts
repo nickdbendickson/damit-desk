@@ -47,6 +47,11 @@ describe("rail checklist", () => {
     assert.ok(!blocks(c.flood));
   });
 
+  it("Results' Fix… points at the Files… control, not the import card (Absaraka desk test 2026-11-21)", () => {
+    const c = check(sample());
+    assert.equal(c.results[0].target, '[data-testid="import-lisflood-files"]');
+  });
+
   it("a classified record has no Report to-do", () => {
     const d = sample();
     d.hazardResult = { suggestedClass: "Low" } as DamRecord["hazardResult"];

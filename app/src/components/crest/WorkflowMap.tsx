@@ -3,7 +3,7 @@ import { lazy, Suspense, useMemo } from "react";
 import { boundsOf, crest } from "@/lib/crest/dashboard";
 import { DEPTH_BANDS, floodStrip, type FloodStrip } from "@/lib/crest/floodstrip";
 import { num } from "@/lib/crest/format";
-import { mapCallouts } from "@/lib/crest/map-callouts";
+import { mapCallouts, mappedLayerOf } from "@/lib/crest/map-callouts";
 import { outlineState } from "@/lib/crest/outline";
 import { receptorPoints } from "@/lib/crest/results";
 import type { Analysis, DamRecord } from "@/lib/crest/types";
@@ -31,7 +31,9 @@ function useWorkflowMapLayer(dam: DamRecord, deskResult: Analysis) {
     [record, outline, dam, result],
   );
   const basis = record.fromRun ? `${label} max depth` : outline.state === "ready" ? "Terrain outline (fast layer, not a 2-D model)" : "Desk estimate: schematic strip, not a mapped extent";
-  return { depth, result, label, basis };
+  // The callouts read the layer drawn: the terrain layer's area and depth when it is drawn instead of a run.
+  const layer = useMemo(() => (!record.fromRun && outline.state === "ready" ? mappedLayerOf(outline.outline, "terrain layer") : null), [record.fromRun, outline]);
+  return { depth, result, label, basis, layer };
 }
 
 /**
@@ -40,7 +42,7 @@ function useWorkflowMapLayer(dam: DamRecord, deskResult: Analysis) {
  * over it. Every number is read from the analysis of record; the map is the Dashboard's map, not a new one.
  */
 export function WorkflowMap({ dam, deskResult, open, onToggle }: { dam: DamRecord; deskResult: Analysis; open: boolean; onToggle: () => void }) {
-  const { depth, result, label, basis } = useWorkflowMapLayer(dam, deskResult);
+  const { depth, result, label, basis, layer } = useWorkflowMapLayer(dam, deskResult);
   const fit = useMemo(() => boundsOf(depth), [depth]);
   const placed = useMemo(() => {
     const byId = new Map(result.flood.receptors.map((r) => [r.id, r]));
@@ -65,7 +67,7 @@ export function WorkflowMap({ dam, deskResult, open, onToggle }: { dam: DamRecor
         .map(({ p, r }) => ({ id: p.id, lon: p.lon, lat: p.lat, text: `${num(r!.arrivalHr!, 1)} h` })),
     [placed],
   );
-  const callouts = useMemo(() => mapCallouts(result, label), [result, label]);
+  const callouts = useMemo(() => mapCallouts(result, label, layer), [result, label, layer]);
   if (!depth) return null;
   const toggle = (
     <button type="button" className="wf-map-toggle" aria-expanded={open} aria-controls="workflow-map-body" onClick={onToggle} data-testid="map-toggle">

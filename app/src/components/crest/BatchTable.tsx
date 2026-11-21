@@ -108,7 +108,7 @@ export function BatchTable({
     () => [
       col.accessor("label", {
         id: "structure",
-        header: "Structure",
+        header: "Dam",
         sortingFn: (a: Row<BatchRow>, b: Row<BatchRow>) => a.original.label.localeCompare(b.original.label, "en", { numeric: true }),
         cell: (c) => {
           const r = c.row.original;
