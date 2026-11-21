@@ -60,10 +60,18 @@ Screen, Run, Classify, Download layers, Atlas 14 and Find fills call the DamIT p
 those with the suite installer, which puts QGIS in a per-user conda env and does not need admin rights:
 
 ```bash
-# from a checkout of nickdbendickson/damit
-bash suite_install/install-all.sh                       # everything in ~/dam-suite
-bash suite_install/install-all.sh --sandbox ~/damit-sb  # or: everything in one folder, nothing else touched
+# from a checkout of nickdbendickson/damit (DamIT plugins only: the DamSafety zips come only in a built package)
+bash suite_install/install-all.sh --no-damsafety                       # everything in ~/dam-suite
+bash suite_install/install-all.sh --no-damsafety --sandbox ~/damit-sb  # or: everything in one folder
 ```
+
+**Installing from a git checkout, not a built package.** A checkout has no plugin zips and no LISFLOOD-FP binary;
+those are made by `suite_install/tools/make_package.sh`. The installer from damit after 2026-11-21 builds the DamIT
+plugin zips itself (`scripts/package_plugins.py`) and stops with an error, not "Done", when a plugin could not be
+installed. With an older checkout, build them first:
+`python3 scripts/package_plugins.py suite_install/plugins/damit`. LISFLOOD-FP is not in a checkout either, and
+`--qgis-env` builds none, so the Runner uses its built-in engine unless you pass `--lisflood-exe PATH` (a LISFLOOD-FP
+8.3 with the Runner patch) or install from a built package.
 
 On Windows, `suite_install\install-all-windows.cmd` (`-Sandbox DIR` for the one-folder install). On a Mac, run
 `download-all.sh` first and keep the folder in your home directory. Details are in that repository's
@@ -108,8 +116,11 @@ plugin's output while it runs.
 | Dams you entered | the browser's storage for the desk address | the window's storage in the folder above | same |
 
 **From DamIT Crest.** The first time DamIT Desk starts, it copies the old settings folder (`damit-crest`, or
-`DamIT Crest` on Mac and Windows) to the new one, so dams, the chosen DEM and the NID downloads carry over. The old
-folder is left as it was; delete it yourself once you no longer need DamIT Crest. A job sent to
+`DamIT Crest` on Mac and Windows) to the new one, so dams, the chosen DEM and the NID downloads carry over. It says so
+in one line in the terminal and on the Report step ("Settings: first start: copied the old DamIT Crest settings…"),
+and leaves `COPIED-FROM-DAMIT-CREST.txt` in the new folder saying where from and when. The old folder is left as it
+was and is still read when a settings file is missing from the new one; delete it yourself once you no longer need
+DamIT Crest. To start clean instead, rename the old folder before the first start. A job sent to
 the desk may only write under `~/DamITDams`, `DAMIT_WORK`, or folders listed in `DAMIT_WORK_ROOTS`. `DAMIT_DATA` points
 at a DamIT data folder, `DAMIT_DEM` at a default DEM.
 
@@ -120,7 +131,13 @@ at a DamIT data folder, `DAMIT_DEM` at a default DEM.
 - **Settings** (top bar): the shared starting values every DamIT tool reads (`~/DamIT/defaults.json`): starting pool,
   failure mode, breach method, Manning's n.
 - **Check QGIS hand-off** (Report step): tests that `qgis_process` is found and every DamIT algorithm the buttons call
-  is installed in the profile it reads, without running a dam.
+  is installed in the profile it reads, without running a dam. The profile is the `QGIS_CUSTOM_CONFIG_PATH` the
+  installer's `qgis-process-damit.sh` / `.cmd` sets (read from that launcher), else the desk's own environment.
+- **Work folder** (Report step): left blank, it is `DAMIT_WORK` when that is set, else `~/DamITDams`; the field's hint
+  shows the folder this desk uses.
+- **Batch CSV**: `damit-desk-batch-<date>.csv`. A dam whose terrain download fails because the service could not be
+  reached ("Failed to fetch", a 5xx) is tried again by itself after 5 s and 15 s before its row is kept as failed;
+  six such failures in a row still pause the whole batch, as before.
 - **Screening with a time limit.** With `DAMIT_SCREENING_TIMEOUT_S` set, a screening flood that reaches the limit keeps
   what it has: the desk shows a **PARTIAL SCREENING** warning with the preliminary class, which is then a lower bound,
   instead of failing. The DEM in the Report step's DEM field, `DAMIT_DEM` or the DEM chosen on the Flood step is used
