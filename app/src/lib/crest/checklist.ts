@@ -6,7 +6,7 @@
  */
 import { INPUT_RANGE } from "./engine.ts";
 import { missingForNext } from "./nid-dams.ts";
-import { STEP_DONE, type PipelineAnalysis } from "./pipeline.ts";
+import { screeningHold, STEP_DONE, type PipelineAnalysis } from "./pipeline.ts";
 import type { DamRecord, StepId } from "./types.ts";
 import { datumFlags, floodFlags, type Warning } from "./warnings.ts";
 
@@ -61,7 +61,7 @@ const short = (t: string, n = 70) => (t.length > n ? `${t.slice(0, n - 1).trimEn
 /** The rail's to-dos for one step that is not complete. */
 const TODO: Partial<Record<StepId, { text: string; target: string | null }>> = {
   flood: { text: "Build the terrain layer (or import a model run)", target: '[data-testid="outline-panel"] button:not(:disabled)' },
-  results: { text: "No model run imported yet", target: '[data-testid^="import-lisflood"]' },
+  results: { text: "No model run imported yet", target: '[data-testid="import-lisflood-files"]' },
   screen: { text: "The screen is held at Review", target: '[data-testid="screen-source"]' },
   report: { text: "Not classified: run damit:classify", target: field("classify") },
 };
@@ -100,9 +100,14 @@ export function stepChecklist(dam: DamRecord, desk: { datum: { warnings: string[
     if (missingTargets.size && (/^Elevations missing/.test(w.text) || / is missing\b/.test(w.text) || (t.target && missingTargets.has(t.target)))) continue;
     out[t.step].push({ key: `${origin}-${w.code}-${i}`, step: t.step, kind: w.severity === "stop" ? "stop" : "warn", text: `${w.code} ${short(w.text)}`, detail: `${w.code}: ${w.text}`, target: t.target });
   }
+  // A PARTIAL / not-determined / failed QGIS screening holds the Screen step: say so, and point at the hand-off panel.
+  const hold = screeningHold(dam);
+  if (hold)
+    out.screen.push({ key: `screening-${hold.kind}`, step: "report", kind: "warn", text: short(hold.text), detail: `${hold.text}. Raise the time limit (DAMIT_SCREENING_TIMEOUT_S) or import a finished model run, then classify.`, target: '[data-testid="screening-partial"], #handoff-panel' });
   for (const [id, todo] of Object.entries(TODO) as [StepId, { text: string; target: string | null }][]) {
     if (STEP_DONE[id](dam, record)) continue;
     if (id === "screen" && missingForNext(dam).length) continue; // the missing inputs above are the reason
+    if (id === "screen" && hold) continue; // the screening item above is the reason
     if (id === "flood" && !STEP_DONE.dashboard(dam, record))
       out.dashboard.push({ key: "todo-dashboard", step: "flood", kind: "todo", text: "Needs a flood layer (Flood step)", detail: "The Dashboard needs a flood layer: build it on the Flood step or import a model run.", target: todo.target });
     out[id].push({ key: `todo-${id}`, step: id, kind: "todo", text: todo.text, detail: todo.text, target: todo.target });

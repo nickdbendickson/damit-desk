@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { analyze } from "@/lib/crest/engine";
 import { DEPTH_BANDS, floodStrip } from "@/lib/crest/floodstrip";
 import { ROUTED_LABEL } from "@/lib/crest/inundation";
-import { OUTLINE_LABEL, outlineState } from "@/lib/crest/outline";
+import { layerLabel, OUTLINE_LABEL, outlineState } from "@/lib/crest/outline";
+import { mappedLayerOf } from "@/lib/crest/map-callouts";
 import { isLargeFlood, RUNNER_SOURCE, runnerNeededText, runnerWorklist, worklistCsv } from "@/lib/crest/layer-of-record";
 import { CRS_DEFS, DIFF_BINS } from "@/lib/crest/raster-meta";
 import { results } from "@/lib/crest/results-client";
@@ -411,7 +412,7 @@ function MapPanel({ dam, result, runs, ready }: { dam: DamRecord; result: Analys
                 {mode === "desk"
                   ? "Desk strip: the schematic valley, not a mapped extent."
                   : mode === "terrain"
-                    ? `${terrain.state === "ready" && terrain.layer === "routed" ? ROUTED_LABEL : OUTLINE_LABEL}. The layer saved with this dam on the Flood step${terrain.state === "ready" ? `, built ${new Date(terrain.builtAt).toLocaleDateString()}` : ""}.`
+                    ? `${terrain.state === "ready" ? layerLabel(dam.outline, ROUTED_LABEL) : OUTLINE_LABEL}. The layer saved with this dam on the Flood step${terrain.state === "ready" ? `, built ${new Date(terrain.builtAt).toLocaleDateString()}` : ""}.`
                     : `${SOURCE_LABEL[mode as ResultSource] ?? ""} max depth, reprojected to the map for display (numbers use the full grid). Datum shifts NAD83→WGS84 (about 1 m) are not applied.`}
               </p>
             </>
@@ -424,13 +425,16 @@ function MapPanel({ dam, result, runs, ready }: { dam: DamRecord; result: Analys
   );
 }
 
-function CompareTable({ result, runs, ready }: { dam: DamRecord; result: Analysis; runs: Partial<Record<ResultSource, RunState>>; ready: ResultSource[] }) {
+function CompareTable({ dam, result, runs, ready }: { dam: DamRecord; result: Analysis; runs: Partial<Record<ResultSource, RunState>>; ready: ResultSource[] }) {
   const d = deskStats(result);
   const cols = ready.map((s) => ({ s, st: runs[s]!.summary!.stats!, cell: runs[s]!.summary!.cellM }));
-  const rows: { k: string; desk: string; run: (st: (typeof cols)[number]) => string }[] = [
-    { k: "Peak depth downstream (ft)", desk: f1(d.peakDepthFt), run: (c) => f1(c.st.peakDepthFt) },
+  // The terrain layer built on the Flood step, as its own column (Absaraka desk test 2026-11-21: the comparison showed
+  // only the schematic strip's 2,374 ac next to the run while the 10,329 ac terrain layer was on the map).
+  const terrain = dam.outline ? mappedLayerOf(dam.outline.outline, "terrain layer") : null;
+  const rows: { k: string; desk: string; terrain?: string; run: (st: (typeof cols)[number]) => string }[] = [
+    { k: "Peak depth downstream (ft)", desk: f1(d.peakDepthFt), terrain: terrain?.maxDepthFt != null ? f1(terrain.maxDepthFt) : "—", run: (c) => f1(c.st.peakDepthFt) },
     { k: "Peak depth incl. reservoir (ft)", desk: "—", run: (c) => f1(c.st.peakDepthAllFt) },
-    { k: "Wet area ≥ 0.1 ft downstream (ac)", desk: f0(d.wetAc), run: (c) => f0(c.st.wetAc) },
+    { k: "Wet area ≥ 0.1 ft downstream (ac)", desk: f0(d.wetAc), terrain: terrain ? f0(terrain.areaAc) : "—", run: (c) => f0(c.st.wetAc) },
     { k: "Farthest wet downstream (km)", desk: f1(d.farthestKm, 2), run: (c) => f1(c.st.farthestKm, 2) },
     // A desk max velocity of 0 means no receptor produced an estimate (none entered, or none flooded), not a still
     // flood — show "—" rather than "0.0", which reads as a zero-velocity flood against the 0.1–14 ft/s scale.
@@ -447,7 +451,12 @@ function CompareTable({ result, runs, ready }: { dam: DamRecord; result: Analysi
         <thead className="text-xs tracking-wide text-muted uppercase">
           <tr>
             <th className="px-2 py-1 font-medium" />
-            <th className="px-2 py-1 font-medium" style={{ color: SOURCE_COLOR.desk }}>Desk</th>
+            <th className="px-2 py-1 font-medium" style={{ color: SOURCE_COLOR.desk }}>Desk strip</th>
+            {terrain ? (
+              <th className="px-2 py-1 font-medium" data-testid="compare-terrain-col">
+                Terrain layer
+              </th>
+            ) : null}
             {cols.map((c) => (
               <th key={c.s} className="px-2 py-1 font-medium" style={{ color: SOURCE_COLOR[c.s] }}>
                 {SOURCE_LABEL[c.s]}
@@ -460,6 +469,7 @@ function CompareTable({ result, runs, ready }: { dam: DamRecord; result: Analysi
             <tr key={r.k} className="border-t border-line">
               <td className="px-2 py-1 text-muted">{r.k}</td>
               <td className="px-2 py-1">{r.desk}</td>
+              {terrain ? <td className="px-2 py-1">{r.terrain ?? "—"}</td> : null}
               {cols.map((c) => (
                 <td key={c.s} className="px-2 py-1">
                   {r.run(c)}
@@ -471,7 +481,8 @@ function CompareTable({ result, runs, ready }: { dam: DamRecord; result: Analysi
       </table>
       <p className="mt-2 text-xs text-muted">
         Downstream = past the dam line along the record's downstream direction (reservoir cells left out). Farthest is a straight
-        line along that direction, not along the channel. Desk numbers are the schematic valley's.
+        line along that direction, not along the channel. Desk strip numbers are the schematic valley's; the terrain layer's are
+        the Flood step's mapped layer (area in its depth bands, ≥ 0.1 ft, the whole layer).
       </p>
     </div>
   );

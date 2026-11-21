@@ -4,7 +4,7 @@
  */
 import { blocks, RAIL_ITEMS_MAX, type CheckItem } from "@/lib/crest/checklist";
 import { STEPS } from "@/lib/crest/engine";
-import { pipelineProgress, STEP_DONE_RULE, type PipelineAnalysis } from "@/lib/crest/pipeline";
+import { pipelineProgress, screeningHold, STEP_DONE_RULE, type PipelineAnalysis } from "@/lib/crest/pipeline";
 import type { DamRecord, StepId } from "@/lib/crest/types";
 
 const KIND: Record<CheckItem["kind"], { glyph: string; cls: string; word: string }> = {
@@ -51,6 +51,7 @@ export function RailChecklist({ stepId, label, items, onFix }: { stepId: StepId;
 /** "n of 8 done" as a ring: the same step-done rules as the status bar's progress (pipeline.ts STEP_DONE). */
 export function ProgressRing({ dam, analysis }: { dam: DamRecord; analysis: PipelineAnalysis }) {
   const p = pipelineProgress(dam, analysis);
+  const hold = screeningHold(dam);
   const r = 15;
   const c = 2 * Math.PI * r;
   const open = p.steps.filter((s) => !s.done).map((s) => STEPS.find((x) => x.id === s.id)?.label ?? s.id);
@@ -74,7 +75,10 @@ export function ProgressRing({ dam, analysis }: { dam: DamRecord; analysis: Pipe
         <p className="font-medium text-ink">
           {p.done} of {p.total} done
         </p>
-        <p className="truncate text-xs text-muted">{open.length ? `Open: ${open.join(", ")}` : "Every step complete"}</p>
+        <p className="truncate text-xs text-muted" title={hold?.text}>
+          {hold ? `Screening ${hold.kind}. ` : ""}
+          {open.length ? `Open: ${open.join(", ")}` : "Every step complete"}
+        </p>
       </div>
     </div>
   );

@@ -10,11 +10,13 @@
  *   flood      a mapped flood layer is on record: the terrain outline is built, or a model run is the source of record
  *   results    a model run (LISFLOOD-FP or DSS-WISE) is imported as the source of record
  *   dashboard  there is a mapped flood layer to review (same test as flood)
- *   screen     the desk screen gives a level (not held at Review by a stop flag) and every input it needs is entered
+ *   screen     the desk screen gives a level (not held at Review by a stop flag) and every input it needs is entered,
+ *              and the last QGIS screening (if one ran) finished with a preliminary class: a PARTIAL or "not
+ *              determined" screening keeps the step open (Absaraka desk test 2026-11-21)
  *   report     damit:classify has returned a class for this dam (Report step, Classify)
  */
 import { missingForNext } from "./nid-dams.ts";
-import type { DamRecord, ScreenLevel, StepId } from "./types.ts";
+import type { DamRecord, ScreeningResult, ScreenLevel, StepId } from "./types.ts";
 
 export const STEP_ORDER: readonly StepId[] = ["setup", "record", "breach", "flood", "results", "dashboard", "screen", "report"];
 
@@ -30,9 +32,42 @@ export const STEP_DONE: Record<StepId, (d: DamRecord, a: PipelineAnalysis) => bo
   flood: hasFloodLayer,
   results: (d) => d.resultsOfRecord != null,
   dashboard: hasFloodLayer,
-  screen: (d, a) => missingForNext(d).length === 0 && a.screen.level !== "Review",
+  screen: (d, a) => missingForNext(d).length === 0 && a.screen.level !== "Review" && screeningHold(d) == null,
   report: (d) => Boolean(d.hazardResult?.suggestedClass),
 };
+
+/**
+ * Why the last QGIS screening keeps the Screen step open, or null when it does not (none ran, or it finished with a
+ * preliminary class): "partial" = stopped at its time limit, "not determined" = finished with no class, "failed".
+ */
+export function screeningHold(d: DamRecord): { kind: "partial" | "not determined" | "failed"; text: string } | null {
+  const r = d.screeningResult;
+  if (!r) return null;
+  const cls = r.label ? `preliminary ${r.label}` : "no preliminary class (not determined)";
+  if (r.state === "partial") return { kind: "partial", text: `QGIS screening PARTIAL${r.reason ? ` (${r.reason})` : ""}: ${cls}` };
+  if (r.state === "failed") return { kind: "failed", text: `QGIS screening failed${r.reason ? `: ${r.reason}` : ""}` };
+  if (!r.label) return { kind: "not determined", text: "QGIS screening finished with no preliminary class (not determined)" };
+  return null;
+}
+
+/** The fields of a finished /api/screen job (qgis_run.run_screening / _partial_result) the desk keeps. */
+export type ScreenJob = {
+  ok?: boolean;
+  partial?: boolean;
+  timedOut?: boolean;
+  cancelled?: boolean;
+  screening?: { suggested_label?: unknown; status?: unknown } | null;
+  flood?: { acres?: unknown; maxDepthFt?: unknown } | null;
+};
+
+/** A finished screening job as the record keeps it: done with or without a class, PARTIAL, or failed. */
+export function screeningOutcome(job: ScreenJob, now: Date = new Date()): ScreeningResult {
+  const label = typeof job.screening?.suggested_label === "string" && job.screening.suggested_label ? job.screening.suggested_label : null;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const state: ScreeningResult["state"] = job.partial ? "partial" : job.ok ? "done" : "failed";
+  const reason = job.partial || job.timedOut ? "time limit" : job.cancelled ? "cancelled" : !job.ok ? "the chain stopped; see the log" : null;
+  return { state, label, reason, areaAc: num(job.flood?.acres), maxDepthFt: num(job.flood?.maxDepthFt), at: now.toISOString() };
+}
 
 /** Why a step reads complete, in words (the status bar's tooltip). */
 export const STEP_DONE_RULE: Record<StepId, string> = {
@@ -42,7 +77,7 @@ export const STEP_DONE_RULE: Record<StepId, string> = {
   flood: "terrain outline built or a model run of record",
   results: "a model run imported as the source of record",
   dashboard: "a mapped flood layer to review",
-  screen: "the desk screen has a level (not held at Review)",
+  screen: "the desk screen has a level (not held at Review) and the QGIS screening, if run, finished with a class",
   report: "damit:classify returned a class",
 };
 

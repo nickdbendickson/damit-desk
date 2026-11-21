@@ -5,7 +5,7 @@ import damitWordmark from "@/assets/damit-wordmark-light.png";
 import { currentDemSource, subscribeDemSource, type DemState } from "@/lib/crest/dem-source";
 import { hasDesktopServer } from "@/lib/crest/desktop-server";
 import { engineText, runText, useJobStatus } from "@/lib/crest/job-status";
-import { pipelineProgress, STEP_DONE_RULE, TABS, type PipelineAnalysis, type TabId } from "@/lib/crest/pipeline";
+import { pipelineProgress, screeningHold, STEP_DONE_RULE, TABS, type PipelineAnalysis, type TabId } from "@/lib/crest/pipeline";
 import { STEPS } from "@/lib/crest/engine";
 import type { DamRecord } from "@/lib/crest/types";
 
@@ -158,9 +158,20 @@ export function DeskTabs({ tab, onTab, reviewFlags }: { tab: TabId | null; onTab
             >
               {t.label}
               {t.id === "review" && reviewFlags > 0 ? (
-                <span className="rounded-full bg-amber-bg px-1.5 text-xs font-semibold text-flag-amber" aria-label={`${reviewFlags} flags to check`}>
-                  {reviewFlags}
-                </span>
+                <>
+                  {/* A plain span cannot carry an aria-label (Absaraka desk test 2026-11-21): the count is shown, and read as words. */}
+                  <span
+                    aria-hidden="true"
+                    title={`${reviewFlags} flag${reviewFlags === 1 ? "" : "s"} to check before review (datum and flood checks; the rail lists them under their steps)`}
+                    className="rounded-full bg-amber-bg px-1.5 text-xs font-semibold text-flag-amber"
+                    data-testid="review-flag-badge"
+                  >
+                    {reviewFlags}
+                  </span>
+                  <span className="sr-only">
+                    , {reviewFlags} flag{reviewFlags === 1 ? "" : "s"} to check
+                  </span>
+                </>
               ) : null}
             </button>
           );
@@ -187,6 +198,7 @@ export function DeskStatusBar({ dam, analysis }: { dam: DamRecord; analysis: Pip
   const dem = useDemSource();
   const engine = engineText(job, server);
   const prog = pipelineProgress(dam, analysis);
+  const hold = screeningHold(dam);
   const ref = dam.resultsOfRecord;
   const crs = ref ? `${ref.crs} (${ref.label})` : "EPSG:4326 lon/lat (desk record)";
   const demText = !dem || dem.kind === "unavailable" ? "Terrain: USGS 3DEP" : dem.kind === "local" ? `DEM: ${baseName(dem.path)}` : "Terrain: USGS 3DEP";
@@ -223,6 +235,11 @@ export function DeskStatusBar({ dam, analysis }: { dam: DamRecord; analysis: Pip
         <span className="text-ink">
           {prog.done}/{prog.total} steps
         </span>
+        {hold ? (
+          <span className="font-semibold text-flag-amber" data-testid="status-screening" title={hold.text}>
+            · screening {hold.kind}
+          </span>
+        ) : null}
       </span>
     </footer>
   );

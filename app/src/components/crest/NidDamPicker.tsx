@@ -12,6 +12,8 @@ import {
   countyOptions,
   damOptionLabel,
   demElevationsPatch,
+  duplicateNidRecords,
+  duplicateNidText,
   elevationNote,
   fieldTag,
   heightWarningOnElevations,
@@ -127,6 +129,9 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
   const { data, error, loading, reload } = useNidData();
   const update = useDesk((s) => s.update);
   const addDam = useDesk((s) => s.addDam);
+  const dams = useDesk((s) => s.dams);
+  const select = useDesk((s) => s.select);
+  const [keepBoth, setKeepBoth] = useState(false);
   const [county, setCounty] = useState("");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -139,6 +144,14 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
   const results = useMemo(() => (data ? searchDams(data.dams, query, county) : []), [data, query, county]);
   const shown = results.slice(0, MAX_OPTIONS);
   const confirm = useMemo(() => (picked && data ? prefillPatch(picked, data, dam) : null), [picked, data, dam]);
+  // Another record already filed under this NID ID: "Apply" would make two (this one and that one); "New record"
+  // also counts this record when it already has the NID ID.
+  const dupOthers = useMemo(() => (picked ? duplicateNidRecords(dams, picked.nid, dam.id) : []), [picked, dams, dam.id]);
+  const dupAll = useMemo(() => (picked ? duplicateNidRecords(dams, picked.nid) : []), [picked, dams]);
+  const dup = dupOthers[0] ?? dupAll[0] ?? null;
+  const blocked = dupOthers.length > 0 && !keepBoth;
+  const dupAny = dupAll.length > 0;
+  useEffect(() => setKeepBoth(false), [picked]);
 
   const choose = (d: NidDam) => {
     setPicked(d);
@@ -269,10 +282,32 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
           <p className="mt-1 text-muted">
             {damOptionLabel(picked)}. {elevationNote(confirm.replaced)}
           </p>
+          {dup ? (
+            <div role="alert" className="mt-2 rounded-sm border border-amber bg-amber-bg p-2 text-ink" data-testid="nid-duplicate">
+              <p>{duplicateNidText(picked.nid, dup)}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="h-10 rounded-sm border border-water bg-water px-3 text-card"
+                  onClick={() => {
+                    select(dup.id);
+                    setPicked(null);
+                  }}
+                >
+                  Open the existing record
+                </button>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={keepBoth} onChange={(e) => setKeepBoth(e.target.checked)} data-testid="nid-keep-both" />
+                  Keep both (they share dams/{picked.nid.toUpperCase()})
+                </label>
+              </div>
+            </div>
+          ) : null}
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"
-              className="h-10 rounded-sm border border-water bg-water px-3 text-card"
+              className="h-10 rounded-sm border border-water bg-water px-3 text-card disabled:opacity-50"
+              disabled={blocked}
               onClick={() => {
                 update(confirm.patch);
                 setPicked(null);
@@ -282,7 +317,8 @@ export function NidDamPicker({ dam }: { dam: DamRecord }) {
             </button>
             <button
               type="button"
-              className="h-10 rounded-sm border border-line bg-paper px-3"
+              className="h-10 rounded-sm border border-line bg-paper px-3 disabled:opacity-50"
+              disabled={dupAny && !keepBoth}
               onClick={() => {
                 const patch = newRecordPatch(picked, data, dam);
                 const base = applyDefaults(blankDam(), sharedNow().values);

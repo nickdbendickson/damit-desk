@@ -19,7 +19,7 @@ export const crest = {
   bg: "#F5F5F0",
   panel: "#FFFFFF",
   ink: "#1F2933",
-  muted: "#6B7280",
+  muted: "#5B6270",
   border: "#E5E7EB",
   red: "#B91C1C",
   redBg: "#FEE2E2",

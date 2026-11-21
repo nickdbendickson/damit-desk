@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  BATCH_DISCLAIMER,
+  batchDisclaimer,
   BROWSER_BATCH_WARN,
   DEFAULT_STATUSES,
   batchCsv,
@@ -523,7 +523,7 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
   ) => (
     <div>
       <p className="mb-2 text-sm text-muted">
-        {chosen.length ? `${chosen.length} chosen. ` : ""}Tick one or more {label}.
+        {chosen.length ? `${chosen.length} chosen. ` : ""}Tick one or more {label}.{" "}
         {chosen.length ? (
           <button type="button" className="ml-2 text-water underline" onClick={() => set([])}>
             Clear
@@ -536,6 +536,8 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
             key={x.value}
             type="button"
             className={chip(chosen.includes(x.value))}
+            aria-pressed={chosen.includes(x.value)}
+            aria-label={`${x.value}: ${x.count} dam${x.count === 1 ? "" : "s"}`}
             onClick={() => toggle(chosen, x.value, set)}
           >
             {x.value} <span className="opacity-70">{x.count}</span>
@@ -770,7 +772,7 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
       {sorted.length ? (
         <div className={pane}>
           <h3 className="text-lg">Results: Runner worklist first</h3>
-          <p className="mt-1 text-xs text-muted">{BATCH_DISCLAIMER}</p>
+          <p className="mt-1 text-xs text-muted">{batchDisclaimer()}</p>
           {opening ? (
             <p className="mt-1 text-sm text-muted" role="status">
               Rebuilding the record for {opening} from the inventories and the terrain…

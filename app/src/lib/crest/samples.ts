@@ -253,3 +253,23 @@ export function blankDam(): DamRecord {
     receptors: valley("new"),
   };
 }
+
+/**
+ * "+ New" on the dam list (Absaraka desk test 2026-11-21): a record with nothing filled in. blankDam's placeholder
+ * height, length, crest, streambed, storage and drainage (20 ft, 800 ft, 100, 82, 200 ac-ft, 4 mi²) made a dam that
+ * did not exist yet read Record and Breach complete with a 7,217 cfs peak. They are blank here, so the rail lists
+ * them as missing until the NID fill or the user enters them; no placeholder receptors either.
+ */
+export function emptyDam(): DamRecord {
+  return {
+    ...blankDam(),
+    name: "New dam",
+    heightFt: Number.NaN,
+    lengthFt: Number.NaN,
+    crestFt: Number.NaN,
+    streambedFt: Number.NaN,
+    storageAcFt: Number.NaN,
+    drainageMi2: Number.NaN,
+    receptors: [],
+  };
+}
