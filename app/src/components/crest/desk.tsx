@@ -1772,7 +1772,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         {handoffInfo?.problems?.length ? ` — ${handoffInfo.problems.join("; ")}` : ""}
       </p>
       {serverNotices(handoffInfo?.notices).map((n) => (
-        <p key={n} className="mt-1 text-xs text-ink" role="status" data-testid="storage-notice">
+        <p key={n} className="mt-1 text-xs text-ink [overflow-wrap:anywhere]" role="status" data-testid="storage-notice">
           Settings: {n}
         </p>
       ))}
@@ -1790,6 +1790,9 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
               bump((n) => n + 1);
             }}
           />
+          <span className="mt-0.5 block text-[11px] text-muted [overflow-wrap:anywhere]" data-testid="handoff-work-default">
+            {(handoff.work ?? "").trim() ? "" : workFolderHint(handoffInfo?.work).replace(/^blank = /, "Used when blank: ")}
+          </span>
         </label>
         <label className="text-xs text-muted">
           DEM <ChooseFile what="the DEM" onPick={(p) => ((handoff.dem = p), bump((n) => n + 1))} />
