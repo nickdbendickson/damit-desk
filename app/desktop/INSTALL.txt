@@ -31,8 +31,8 @@ Algorithm ids (defaults; see docs/HANDOFF.md to change them):
   damit:classify          hazard classification (damit_hazard)
   damit_screen:preflight  screening preflight (damit_screener)
   damit_screen:runchain   screening chain (damit_screener)
-  damit_run:rundam        one-dam run (damit_runner; 0.1.0 prepares and
-                          records the run, it launches no model)
+  damit_run:rundam        one-dam run (damit_runner; it runs the flood
+                          model, LISFLOOD-FP or its built-in engine)
   damit_run:batch         not published - never started here
   damit_cli.py            one-dam runner CLI, searched in DamIT plugin
                           folders (none published yet)
@@ -66,7 +66,7 @@ Write folder and run screening
 
 Run the flood model
   One dam only: damit_run:rundam (with the screening's hand-off package
-  when there is one, DRY_RUN=true), or a DamIT runner CLI when Point X and
+  when there is one, DRY_RUN=false), or a DamIT runner CLI when Point X and
   Point Y are both filled in the DEM's coordinates. Never the batch.
   A failure mode you did not choose is sent as piping.
 
@@ -85,6 +85,10 @@ Download layers, Atlas 14 point, Find fills
   0 = none). Find fills gets the state's NID dams, so a listed dam is not
   reported as new.
 
-A blank work folder means ~/DamITDams.
+A blank work folder means DAMIT_WORK when it is set, else ~/DamITDams (the
+field's hint shows which).
+First start after DamIT Crest: the old settings folder is copied once; the
+terminal and the Report step say so, and COPIED-FROM-DAMIT-CREST.txt in the
+new folder records where from.
 The desk screen is not an official hazard class; the engineer of record
 and the regulating agency make the determination.

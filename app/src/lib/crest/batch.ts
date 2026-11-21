@@ -21,6 +21,7 @@
  * Crest is a SCREENING tool: a batch answers "which of these need a Runner run first", and a row's "open in desk"
  * hands the derived record to the desk for a closer look.
  */
+import { isNetworkFailure } from "./batch-job.ts";
 import { csvCell } from "./csv.ts";
 import { bundleAgeLine, deskBundles } from "./data-provenance.ts";
 import { analyze, ENGINE_VERSION } from "./engine.ts";
@@ -622,7 +623,55 @@ export type BatchOptions = BatchDeps & {
    * takes one worker for its build and gives it back; `concurrency` is then the pool's size.
    */
   pool?: InundationPool | null;
+  /**
+   * Waits before a structure whose run could not reach a service (3DEP "Failed to fetch", a 5xx) is run again, before
+   * its row is kept as failed. Default DAM_RETRY_MS; [] for none.
+   */
+  retryWaitsMs?: number[];
 };
+
+/**
+ * Fresh install test 2026-11-21: one dam's 3DEP fetch failed once ("Failed to fetch") and its row stayed failed until
+ * Resume was pressed by hand. A structure that failed only because a service could not be reached (isNetworkFailure)
+ * is now run again after these waits; only then is its row kept as failed (and counted toward the batch's pause, which
+ * still handles a service that is really down).
+ */
+export const DAM_RETRY_MS = [5_000, 15_000];
+
+/** Resolves true after `ms`, or false at once when `signal` aborts first. */
+function waitOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(ok);
+    };
+    const onAbort = () => done(false);
+    const timer = setTimeout(() => done(true), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** runStructure, run again after DAM_RETRY_MS waits while it fails only because a service could not be reached. */
+export async function runStructureWithRetry(
+  s: Structure,
+  deps: BatchDeps,
+  waits: number[] = DAM_RETRY_MS,
+  signal?: AbortSignal,
+): Promise<{ row: BatchRow; dam: DamRecord | null }> {
+  let out = await runStructure(s, deps);
+  let tries = 1;
+  for (const ms of waits) {
+    if (!isNetworkFailure(out.row) || signal?.aborted) break;
+    deps.onStatus?.(`${s.id}: a service could not be reached (${out.row.reason}); trying again in ${Math.round(ms / 1000)} s…`);
+    if (!(await waitOrAbort(ms, signal))) break;
+    out = await runStructure(s, deps);
+    tries++;
+  }
+  if (tries > 1 && isNetworkFailure(out.row)) out.row = { ...out.row, reason: `${out.row.reason} (tried ${tries} times)` };
+  return out;
+}
 
 /** Run a list, `concurrency` at a time, in list order; stops taking new work once `signal` aborts. */
 export async function runBatch(list: Structure[], opts: BatchOptions = {}): Promise<BatchRow[]> {
@@ -649,7 +698,7 @@ export async function runBatch(list: Structure[], opts: BatchOptions = {}): Prom
   const worker = async () => {
     while (next < todo.length && !opts.signal?.aborted) {
       const s = todo[next++];
-      const { row, dam } = await runStructure(s, deps);
+      const { row, dam } = await runStructureWithRetry(s, deps, opts.retryWaitsMs ?? DAM_RETRY_MS, opts.signal);
       if (opts.signal?.aborted && row.status === "failed" && /cancelled/.test(row.reason ?? "")) break;
       rows.push(row);
       done++;
@@ -768,6 +817,11 @@ export function batchCsvMeta(d: { nd: Pick<NidData, "nidSource"> & { state?: str
  * The worklist CSV. Comment rows first ("# ..."): the disclaimer, the Crest build and engine versions that made the
  * rows, and the age of each inventory bundle given in `meta`; then the header and one line per row.
  */
+/** The batch CSV's file name: damit-desk-batch-<UTC date>.csv (it was crest-batch-<date>.csv before 2026-11-21). */
+export function batchCsvName(now = new Date()): string {
+  return `damit-desk-batch-${now.toISOString().slice(0, 10)}.csv`;
+}
+
 export function batchCsv(rows: BatchRow[], meta: BatchCsvMeta = {}): string {
   const now = meta.now ?? new Date();
   const ages = deskBundles({ nidFetchedUtc: meta.nidFetchedUtc, state: meta.state })
