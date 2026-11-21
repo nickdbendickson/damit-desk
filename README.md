@@ -142,6 +142,9 @@ at a DamIT data folder, `DAMIT_DEM` at a default DEM.
   what it has: the desk shows a **PARTIAL SCREENING** warning with the preliminary class, which is then a lower bound,
   instead of failing. The DEM in the Report step's DEM field, `DAMIT_DEM` or the DEM chosen on the Flood step is used
   for every clip of the screening flood, so it no longer downloads USGS 3DEP for the larger clips.
+  The settings file's DEM folder (`local_dem`) is `<work>/screen_dem`, which holds that DEM alone (a link to it, or
+  a copy of a VRT with its tile paths made absolute), so a screener that reads every raster in the folder never picks
+  up results rasters (hmax, vmax, arrival) or a second DEM kept next to the DEM.
 
 ## A shortcut
 
