@@ -204,5 +204,33 @@ class ProjDataMismatchTests(unittest.TestCase):
         self.assertEqual(env, {"PATH": "p"})
 
 
+class EnvGdalwarpTests(unittest.TestCase):
+    """The gdalwarp of the install PROJ_DATA / CONDA_PREFIX belong to comes before the system one."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.pre = Path(self.tmp.name) / "qgis334"
+        (self.pre / "share" / "proj").mkdir(parents=True)
+        (self.pre / "bin").mkdir()
+        self.exe = self.pre / "bin" / ("gdalwarp.exe" if sys.platform == "win32" else "gdalwarp")
+        self.exe.write_text("")
+        self.exe.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_proj_data_points_at_its_own_gdalwarp(self):
+        self.assertEqual(localdem.env_gdalwarp({"PROJ_DATA": str(self.pre / "share" / "proj")}), str(self.exe))
+        with mock.patch.dict("os.environ", {"PROJ_DATA": str(self.pre / "share" / "proj")}):
+            self.assertEqual(localdem.find_gdalwarp(), str(self.exe))
+
+    def test_conda_prefix(self):
+        self.assertEqual(localdem.env_gdalwarp({"CONDA_PREFIX": str(self.pre)}), str(self.exe))
+
+    def test_nothing_set_falls_back_to_path(self):
+        self.assertIsNone(localdem.env_gdalwarp({"PROJ_DATA": str(Path(self.tmp.name) / "none" / "share" / "proj")}))
+        self.assertIsNone(localdem.env_gdalwarp({}))
+
+
 if __name__ == "__main__":
     unittest.main()

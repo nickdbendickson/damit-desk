@@ -5,7 +5,9 @@ float32 metres, row-major from the north-west corner, NODATA -9999. This module 
 chosen in the app (saved in damit-desk-settings.json as "dem_path") by running gdalwarp on a window of it, so only the
 cells asked for are read from the mosaic. The path always comes from the settings file, never from the request.
 
-gdalwarp is looked for on PATH, then inside QGIS on macOS / Windows (QGIS ships it).
+gdalwarp is looked for next to the PROJ / GDAL data the environment points at (PROJ_DATA, PROJ_LIB, GDAL_DATA or
+CONDA_PREFIX: the QGIS env's own gdalwarp, so its proj.db matches), then on PATH, then inside QGIS on macOS / Windows
+(QGIS ships it).
 """
 
 from __future__ import annotations
@@ -30,8 +32,29 @@ _QGIS_GDALWARP = (
 )
 
 
+def env_gdalwarp(env: dict | None = None) -> str | None:
+    """The gdalwarp of the install the environment's data variables belong to (<prefix>/share/proj -> <prefix>/bin),
+    or CONDA_PREFIX's: the system gdalwarp with another install's PROJ_DATA fails on proj.db (Absaraka desk test)."""
+    env = os.environ if env is None else env
+    name = "gdalwarp.exe" if sys.platform == "win32" else "gdalwarp"
+    prefixes = []
+    for k in ("PROJ_DATA", "PROJ_LIB", "GDAL_DATA"):
+        v = env.get(k)
+        if v:
+            d = Path(v)
+            # <prefix>/share/proj, <prefix>/share/gdal (conda, Linux, macOS) or <prefix>/Library/share/proj (conda, Windows)
+            prefixes += [d.parent.parent, d.parent.parent.parent]
+    if env.get("CONDA_PREFIX"):
+        prefixes.append(Path(env["CONDA_PREFIX"]))
+    for pre in prefixes:
+        for b in (pre / "bin" / name, pre / "Library" / "bin" / name):
+            if b.is_file() and os.access(b, os.X_OK):
+                return str(b)
+    return None
+
+
 def find_gdalwarp() -> str | None:
-    found = shutil.which("gdalwarp")
+    found = env_gdalwarp() or shutil.which("gdalwarp")
     if found:
         return found
     for p in _QGIS_GDALWARP:
