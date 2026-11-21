@@ -20,6 +20,7 @@ import {
   DEFAULT_STATUSES,
   batchCsv,
   batchCsvMeta,
+  batchCsvName,
   facets,
   insertRow,
   loadStructures,
@@ -460,7 +461,7 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
 
   const exportCsv = async () => {
     const r = await saveText(
-      `crest-batch-${new Date().toISOString().slice(0, 10)}.csv`,
+      batchCsvName(),
       batchCsv(rows, data ? batchCsvMeta(data) : {}),
       "text/csv",
     );
