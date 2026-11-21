@@ -11,6 +11,7 @@ import math
 import os
 import sys
 import re
+import shlex
 import shutil
 import signal
 import sqlite3
@@ -149,9 +150,16 @@ def resolve_work(requested) -> str | None:
     raise WorkFolderError(f"the work folder must be inside {roots} (set DAMIT_WORK_ROOTS to allow others)")
 
 
+def default_work_dir() -> Path:
+    """The work folder a blank Work folder field means: DAMIT_WORK, else ~/DamITDams (not created here). The Report
+    step shows it in the field's hint (2026-11-21: the hint said ~/DamITDams even with DAMIT_WORK set)."""
+    raw = (os.environ.get("DAMIT_WORK") or "").strip()
+    return (Path(raw).expanduser() if raw else Path.home() / DEFAULT_WORK_NAME).resolve()
+
+
 def work_dir(requested: str | None) -> Path:
-    raw = (requested or os.environ.get("DAMIT_WORK") or "").strip()
-    path = Path(raw).expanduser() if raw else Path.home() / DEFAULT_WORK_NAME
+    raw = (requested or "").strip()
+    path = Path(raw).expanduser() if raw else default_work_dir()
     path.mkdir(parents=True, exist_ok=True)
     return path.resolve()
 
@@ -626,6 +634,53 @@ def _prepare(dam: dict, analysis: dict, work: str | None, log, files=None, appen
 SETTINGS_DIR: Path | None = None
 
 
+_CONFIG_SH = re.compile(r"^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*QGIS_CUSTOM_CONFIG_PATH=(.*)$")
+_CONFIG_CMD = re.compile(r'^\s*set\s+"?QGIS_CUSTOM_CONFIG_PATH=([^"\r\n]*)"?\s*$', re.IGNORECASE)
+
+
+def launcher_config_path(exe: str) -> str | None:
+    """The QGIS_CUSTOM_CONFIG_PATH a qgis_process launcher script sets for QGIS: the suite installer's
+    qgis-process-damit.sh (`export QGIS_CUSTOM_CONFIG_PATH=...`) or .cmd (`set "QGIS_CUSTOM_CONFIG_PATH=..."`).
+    None for a real qgis_process (a binary) or a script that does not set it. Read only, never run."""
+    path = Path(exe)
+    try:
+        if not path.is_file() or path.stat().st_size > 256 * 1024:
+            return None
+        head = path.read_bytes()
+    except OSError:
+        return None
+    if b"\x00" in head[:4096]:
+        return None                                   # a binary: QGIS's own qgis_process
+    found = None
+    for line in head.decode("utf-8", "replace").splitlines():
+        if line.lstrip().startswith(("#", "rem ", "REM ", "::")):
+            continue
+        m = _CONFIG_CMD.match(line)
+        if m:
+            found = m.group(1).strip() or None
+            continue
+        m = _CONFIG_SH.match(line)
+        if m:
+            try:
+                parts = shlex.split(m.group(1), comments=True)
+            except ValueError:
+                parts = m.group(1).split()
+            found = (parts[0] if parts else "") or None
+    return found
+
+
+def qgis_config_path(exe: str) -> tuple[str | None, str]:
+    """(QGIS_CUSTOM_CONFIG_PATH qgis_process runs with, where it comes from). The launcher's own setting wins over the
+    desk's environment, because the launcher sets it last, just before QGIS starts."""
+    from_launcher = launcher_config_path(exe)
+    if from_launcher:
+        return from_launcher, f"set by the launcher {Path(exe).name}"
+    env = os.environ.get("QGIS_CUSTOM_CONFIG_PATH")
+    if env:
+        return env, "from the desk's environment"
+    return None, ""
+
+
 CHECK_ROLES = ("preflight", "runchain", "rundam", "classify")   # the roles the Report step's buttons call
 CHECK_TIMEOUT_S = 180.0
 
@@ -641,10 +696,10 @@ def run_check(log, cancel: threading.Event | None = None, config: HandoffConfig 
             "the desk with QGIS_PROCESS set to its qgis-process-damit.sh (.cmd on Windows), or put qgis_process on PATH.")
         return {"ok": False, "check": []}
     log(f"qgis_process: {exe}")
-    custom = os.environ.get("QGIS_CUSTOM_CONFIG_PATH")
-    log("QGIS profile it reads: " + (f"default profile under {custom}" if custom else
-                                     "the default profile, unless the qgis_process launcher sets its own "
-                                     "(QGIS_CUSTOM_CONFIG_PATH is not set for the desk)"))
+    custom, where = qgis_config_path(exe)
+    log("QGIS profile it reads: " + (f"default profile under {custom} (QGIS_CUSTOM_CONFIG_PATH, {where})" if custom else
+                                     "QGIS's default profile (neither the desk nor its qgis_process launcher sets "
+                                     "QGIS_CUSTOM_CONFIG_PATH)"))
     if custom:
         link = Path(custom) / "profiles" / "default"
         log(f"  -> {os.path.realpath(link)}" if link.exists() else

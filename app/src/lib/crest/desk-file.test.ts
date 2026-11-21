@@ -298,3 +298,25 @@ describe("DamIT Desk's own record fields and files", () => {
     assert.ok(r.notes.some((n) => /engineering inputs only/.test(n)));
   });
 });
+
+describe("the desk file names the DamIT Desk build (fresh install test 2026-11-21)", () => {
+  it("writes deskVersion, not crestVersion", () => {
+    const j = JSON.parse(deskFileText(SAMPLE_DAMS.slice(0, 1), SAMPLE_DAMS[0].id));
+    assert.equal(typeof j.deskVersion, "string");
+    assert.ok(j.deskVersion.length > 0);
+    assert.equal("crestVersion" in j, false);
+    assert.equal(j.format, DESK_FILE_FORMAT, "the format id is unchanged, so older desks still open new files");
+    const r = ok(openDeskFile(JSON.stringify(j)));
+    assert.equal(r.deskVersion, j.deskVersion);
+  });
+
+  it("still reads the build from a file saved before the rename (crestVersion)", () => {
+    const j = JSON.parse(deskFileText(SAMPLE_DAMS.slice(0, 1), SAMPLE_DAMS[0].id));
+    delete j.deskVersion;
+    j.crestVersion = "0.1.2+e6a09ab";
+    const r = ok(openDeskFile(JSON.stringify(j)));
+    assert.equal(r.kind, "desk");
+    assert.equal(r.deskVersion, "0.1.2+e6a09ab");
+    assert.equal(r.dams.length, 1);
+  });
+});
