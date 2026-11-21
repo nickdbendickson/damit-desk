@@ -521,7 +521,7 @@ function StructureTable({ dam, result, runs, ready }: { dam: DamRecord; result: 
   return (
     <div className="overflow-x-auto rounded-md border border-line bg-card p-4" data-testid="structure-table">
       <h3 className="font-medium">Per structure</h3>
-      <table className="mt-2 w-full text-left text-sm">
+      <table className="sticky-first mt-2 w-full text-left text-sm">
         <thead className="text-xs tracking-wide text-muted uppercase">
           <tr>
             <th className="px-2 py-1 font-medium" rowSpan={2}>Point</th>

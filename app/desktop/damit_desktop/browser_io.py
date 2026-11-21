@@ -23,6 +23,7 @@ A path outside them, a symlink that leads outside them, or a file name with a fo
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -133,7 +134,7 @@ def set_export_dir(settings_file: Path | None, path: str) -> Path:
 def list_dir(path: str | None, mode: str = "dem", settings_file: Path | None = None) -> dict:
     """{"dir", "parent", "roots", "entries": [{"name", "path", "dir"}]} for the desk's file chooser, inside the read
     roots only. No path means the first root (the work folder). Hidden entries are left out; in "dem" mode only DEM
-    files are listed beside the folders; an entry whose real path leaves the roots (a symlink) is not listed."""
+    files are listed beside the folders, in "csv" mode only .csv files; an entry whose real path leaves the roots (a symlink) is not listed."""
     roots = read_roots(settings_file)
     if not roots:
         raise BrowserIOError("there is no work folder to show; set DAMIT_WORK")
@@ -157,7 +158,9 @@ def list_dir(path: str | None, mode: str = "dem", settings_file: Path | None = N
             is_dir = real.is_dir()
         except OSError:
             continue
-        if not is_dir and (mode != "dem" or p.suffix.lower() not in localdem.DEM_SUFFIXES):
+        # "dem": DEM files; "csv": tables (the rail trains-per-day lookup); "folder": folders only
+        wanted = localdem.DEM_SUFFIXES if mode == "dem" else (".csv",) if mode == "csv" else ()
+        if not is_dir and p.suffix.lower() not in wanted:
             continue
         entries.append({"name": p.name, "path": str(folder / p.name), "dir": is_dir})
         if len(entries) >= MAX_ENTRIES:
@@ -250,3 +253,85 @@ def save_export(settings_file: Path | None, name: str, data: bytes) -> Path:
             pass
         raise
     return target
+
+
+#: How deep and how many entries autofill looks through under each read root (a work folder can be large).
+AUTOFILL_DEPTH = 4
+AUTOFILL_MAX_SCAN = 20000
+RASTER_SUFFIXES = (".tif", ".tiff", ".vrt", ".img", ".asc")
+
+
+def _digest(path: Path, cap: int = 256 * 1024 * 1024) -> str:
+    """The file's SHA-256 (size + path when larger than cap, so a big file is never read twice for this)."""
+    try:
+        size = path.stat().st_size
+        if size > cap:
+            return f"{size}:{path}"
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return f"?:{path}"
+
+
+def _is_rail_lookup(name: str) -> bool:
+    n = name.lower()
+    return n.endswith(".csv") and "rail" in n and ("train" in n or "lookup" in n)
+
+
+def autofill(settings_file: Path | None, names: list[str]) -> dict:
+    """Paths the Report step's hand-off form can start from (Absaraka desk test 2026-11-21: every field was typed by
+    hand): the DEM chosen in the desk, where the imported run's rasters are on this computer (the browser only knows
+    their names, so they are looked for by name under the read roots) and a rail trains-per-day lookup CSV.
+    {"dem", "rasters": {name: path | null}, "railLookup", "ambiguous": [name]}; only files inside the read roots."""
+    wanted = {Path(n).name: [] for n in names[:12] if Path(n).name and Path(n).suffix.lower() in RASTER_SUFFIXES}
+    rail: list[Path] = []
+    roots = read_roots(settings_file)
+    seen = 0
+    for root in roots:
+        stack = [(root, 0)]
+        while stack and seen < AUTOFILL_MAX_SCAN:
+            folder, depth = stack.pop()
+            try:
+                entries = sorted(folder.iterdir(), key=lambda p: p.name)
+            except OSError:
+                continue
+            for p in entries:
+                seen += 1
+                if p.name.startswith(".") or p.name in ("node_modules", "chrome-profile"):
+                    continue
+                try:
+                    if p.is_dir():
+                        if depth < AUTOFILL_DEPTH and not p.is_symlink():
+                            stack.append((p, depth + 1))
+                        continue
+                except OSError:
+                    continue
+                real = _real(p)
+                if real is None or not _inside(real, roots):
+                    continue
+                if p.name in wanted and real not in wanted[p.name]:
+                    wanted[p.name].append(real)
+                elif _is_rail_lookup(p.name) and real not in rail:
+                    rail.append(real)
+    dem = localdem.read_dem_path(settings_file)
+    # A run folder holding all of the names wins over stray copies; copies with the same bytes are the same raster.
+    cover: dict[Path, int] = {}
+    for hits in wanted.values():
+        for h in hits:
+            cover[h.parent] = cover.get(h.parent, 0) + 1
+    rasters, ambiguous = {}, []
+    for n, hits in wanted.items():
+        if not hits:
+            rasters[n] = None
+            continue
+        hits = sorted(hits, key=lambda h: (-cover[h.parent], len(h.parts), str(h)))
+        if len(hits) > 1 and len({_digest(h) for h in hits}) > 1:
+            rasters[n] = None
+            ambiguous.append(n)
+        else:
+            rasters[n] = str(hits[0])
+    return {"dem": dem if dem and Path(dem).is_file() else None, "rasters": rasters, "ambiguous": sorted(ambiguous),
+            "railLookup": str(rail[0]) if len(rail) == 1 else None, "railLookups": [str(r) for r in rail[:10]]}
