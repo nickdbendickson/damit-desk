@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { classColor, countsLine, filterClassify, needsRuling, parseClassifyList, rulingFlag, zoomBounds } from "./classify-list.ts";
+import { classColor, countsLine, filterClassify, needsRuling, parseClassifyList, parseRuling, rulingFlag, zoomBounds } from "./classify-list.ts";
 
 const RAW = {
   receptors: [
@@ -27,6 +27,10 @@ describe("classify receptor list", () => {
     assert.equal(l.receptors[3].at, null);
     assert.equal(l.receptors[3].bbox, null);
     assert.equal(l.receptors[3].name, "structures:8", "no name: the id stands in");
+    assert.equal("ruling" in l, false, "the server did not say: nothing to backfill");
+    assert.equal(parseClassifyList({ ...RAW, ruling: null })!.ruling, null);
+    assert.deepEqual(parseClassifyList({ ...RAW, ruling: { label: "High", hits: 6, unruled: 4, why: ["a", 2] } })!.ruling, { label: "High", hits: 6, unruled: 4, why: ["a", "2"] });
+    assert.equal(parseRuling({ label: "High", hits: 6, unruled: 0 }), null);
     assert.equal(parseClassifyList({}), null);
     assert.equal(parseClassifyList("x"), null);
   });

@@ -102,6 +102,15 @@ class ClassifyReceptorTests(unittest.TestCase):
         self.assertEqual(by["structures:1"]["at"], [-97.2, 46.8])
         self.assertFalse(out["truncated"])
         self.assertTrue(cr.read_receptors(self.gpkg, limit=2)["truncated"])
+        self.assertIsNone(out["ruling"])
+
+    def test_carries_the_needs_ruling_summary_from_the_report(self):
+        rep = self.gpkg.parent / "damit_hazard_report.json"
+        rep.write_text(json.dumps({"config": {"labels": {"3": "High"}},
+                                   "hits": [{"class": 3, "receptors": ["roads:0"]}, {"class": 3, "receptors": ["rail:21"]}],
+                                   "flags": [{"code": "trains_lookup", "message": "15 trains/day looked up", "receptors": ["rail:21"]}]}))
+        self.assertEqual(cr.read_receptors(self.gpkg)["ruling"],
+                         {"label": "High", "hits": 2, "unruled": 1, "why": ["15 trains/day looked up"]})
 
     def test_only_the_receptors_gpkg_inside_the_work_folder(self):
         with self.assertRaises(cr.ReceptorsError):

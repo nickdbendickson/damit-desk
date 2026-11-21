@@ -14,7 +14,7 @@ import struct
 from pathlib import Path
 
 from damit_desktop.browser_io import BrowserIOError
-from damit_desktop.qgis_run import allowed_work_roots
+from damit_desktop.qgis_run import allowed_work_roots, unruled_top
 
 GPKG_NAME = "damit_hazard_receptors.gpkg"
 #: GeoPackage table -> (layer name used by the desk, classify_inputs file)
@@ -127,18 +127,23 @@ def _inputs(folder: Path, name: str) -> list[dict]:
 
 
 def read_receptors(gpkg: Path, limit: int = MAX_ROWS) -> dict:
-    """{"receptors": [...], "counts": {layer: {"total", "wet", "hit"}}, "total", "truncated", "gpkg"}: receptors with
+    """{"receptors": [...], "counts": {layer: {"total", "wet", "hit"}}, "total", "truncated", "gpkg", "ruling"}: receptors with
     a hit (class >= 0) or water on them, strongest class first, then deepest."""
     inputs_dir = gpkg.parent.parent / "classify_inputs"
     try:
-        cfg = json.loads((gpkg.parent / "damit_hazard_report.json").read_text(encoding="utf-8")).get("config") or {}
-        labels = cfg.get("labels") if isinstance(cfg.get("labels"), dict) else {}
-    except (OSError, ValueError, AttributeError):
-        labels = {}
+        report = json.loads((gpkg.parent / "damit_hazard_report.json").read_text(encoding="utf-8"))
+        report = report if isinstance(report, dict) else {}
+    except (OSError, ValueError):
+        report = {}
+    cfg = report.get("config") if isinstance(report.get("config"), dict) else {}
+    labels = cfg.get("labels") if isinstance(cfg.get("labels"), dict) else {}
     try:
-        return _read(gpkg, inputs_dir, labels, limit)
+        out = _read(gpkg, inputs_dir, labels, limit)
     except sqlite3.Error as exc:
         raise ReceptorsError(f"could not read {gpkg.name}: {exc}") from exc
+    # The class badge's "needs ruling" summary, so a dam classified before the desk knew it gets the flag too.
+    out["ruling"] = unruled_top(report, labels) if report else None
+    return out
 
 
 def _read(gpkg: Path, inputs_dir: Path, labels: dict, limit: int) -> dict:

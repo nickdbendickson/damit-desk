@@ -32,6 +32,8 @@ export type ClassifyList = {
   truncated: boolean;
   counts: Partial<Record<ClassifyLayer, { total: number; wet: number; hit: number }>>;
   gpkg: string;
+  /** The report's "needs ruling" summary (qgis_run.unruled_top); undefined when the server did not say. */
+  ruling?: HazardResult["ruling"];
 };
 
 export const LAYER_WORD: Record<ClassifyLayer, string> = { STRUCTURES: "Structure", ROADS: "Road", RAIL: "Rail" };
@@ -75,7 +77,17 @@ export function parseClassifyList(raw: unknown): ClassifyList | null {
     truncated: o.truncated === true,
     counts: (o.counts && typeof o.counts === "object" ? o.counts : {}) as ClassifyList["counts"],
     gpkg: String(o.gpkg ?? ""),
+    ...("ruling" in o ? { ruling: parseRuling(o.ruling) } : {}),
   };
+}
+
+/** The classification's "needs ruling" summary from the server (qgis_run.unruled_top), checked; null = none. */
+export function parseRuling(v: unknown): HazardResult["ruling"] {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  if (!(n(o.unruled) > 0)) return null;
+  return { label: String(o.label ?? ""), hits: n(o.hits), unruled: n(o.unruled), why: Array.isArray(o.why) ? o.why.map(String).slice(0, 3) : [] };
 }
 
 export type LayerFilter = ClassifyLayer | "all" | "ruling";

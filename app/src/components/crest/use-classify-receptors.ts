@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { parseClassifyList, type ClassifyList } from "@/lib/crest/classify-list";
 import { crestApiHeaders, hasDesktopServer } from "@/lib/crest/desktop-server";
+import { useDesk } from "@/lib/crest/store";
 import type { DamRecord } from "@/lib/crest/types";
 
 export type Load = { key: string; state: "none" | "loading" | "ready" | "error"; list?: ClassifyList; error?: string };
@@ -48,3 +49,31 @@ export function useClassifyReceptors(dam: DamRecord): Load {
   return load.key === key ? load : { key, state: "loading" };
 }
 
+/**
+ * A dam classified before the desk knew about rulings has no `ruling` on its result: read it from the same report once
+ * (the receptor list carries it) and store it, so the class badge shows "needs ruling" without running classify again.
+ */
+export function useRulingBackfill(dam: DamRecord | null | undefined): void {
+  const id = dam?.id ?? "";
+  const hr = dam?.hazardResult;
+  const gpkg = hr?.gpkg ?? "";
+  const need = !!gpkg && hr?.ruling === undefined;
+  const key = gpkg ? `${gpkg}|${hr?.classifiedAt ?? ""}` : "";
+  useEffect(() => {
+    if (!need || !hasDesktopServer()) return;
+    let live = true;
+    fetchList(gpkg, key).then(
+      (list) => {
+        if (!live || list.ruling === undefined) return;
+        const s = useDesk.getState();
+        const cur = s.dams.find((d) => d.id === id)?.hazardResult;
+        if (s.activeId !== id || !cur || cur.gpkg !== gpkg || cur.ruling !== undefined) return;
+        s.update({ hazardResult: { ...cur, ruling: list.ruling } });
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [need, gpkg, key, id]);
+}

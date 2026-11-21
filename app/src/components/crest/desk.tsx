@@ -108,6 +108,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { DeskHeader, DeskStatusBar, DeskTabs } from "./DeskChrome";
 import { WorkflowMap } from "./WorkflowMap";
+import { parseRuling } from "@/lib/crest/classify-list";
 import { DESK_ACTIONS, isPaletteShortcut, shortcutLabel } from "@/lib/crest/commands";
 import { jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJobStatus } from "@/lib/crest/job-status";
 import {
@@ -127,6 +128,7 @@ import { stepChecklist, type CheckItem } from "@/lib/crest/checklist";
 import { ProgressRing, RailChecklist } from "./RailChecklist";
 import { ReviewSummary } from "./ReviewSummary";
 import { ClassifyReceptorsPanel } from "./ClassifyReceptors";
+import { useRulingBackfill } from "./use-classify-receptors";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -302,6 +304,7 @@ export function Desk() {
   }, [here]);
 
   const dam = activeDam({ dams, activeId });
+  useRulingBackfill(dam);
   const result = useMemo(() => analyze(dam), [dam]);
   useResultsSync(dam, result);
   const recordAnalysis = useAnalysisOfRecord(dam, result).result;
@@ -1811,14 +1814,6 @@ function HazardLead({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
   );
 }
 
-/** The classification's "needs ruling" summary from the server (qgis_run.unruled_top), checked. */
-function parseRuling(v: unknown): HazardResult["ruling"] {
-  if (!v || typeof v !== "object") return null;
-  const o = v as Record<string, unknown>;
-  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
-  if (!(n(o.unruled) > 0)) return null;
-  return { label: String(o.label ?? ""), hits: n(o.hits), unruled: n(o.unruled), why: Array.isArray(o.why) ? o.why.map(String).slice(0, 3) : [] };
-}
 
 const handoff = {
   depth: "",
