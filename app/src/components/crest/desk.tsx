@@ -1,4 +1,4 @@
-import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
@@ -114,6 +114,10 @@ import {
   type TabId,
 } from "@/lib/crest/pipeline";
 import { saveDeskFile } from "@/lib/crest/desk-save";
+import { parseHits } from "@/lib/crest/review-summary";
+import { stepChecklist, type CheckItem } from "@/lib/crest/checklist";
+import { ProgressRing, RailChecklist } from "./RailChecklist";
+import { ReviewSummary } from "./ReviewSummary";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -212,6 +216,30 @@ function whenShown(id: string, f: (el: HTMLElement) => void, tries = 60): void {
   else if (tries > 0) window.requestAnimationFrame(() => whenShown(id, f, tries - 1));
 }
 
+/**
+ * Focus what a checklist item's Fix… points at once its step has rendered: the first visible match of `target`,
+ * scrolled into view and briefly outlined; with no target (or none after ~1 s), the step's content panel. It starts a
+ * frame late and checks the focus held, because the step it leaves can hold the same field (Guided setup shows the
+ * Record form) and unmounts after the switch.
+ */
+function focusFix(target: string | null, tries = 60): void {
+  window.requestAnimationFrame(() => {
+    const el = target ? [...document.querySelectorAll<HTMLElement>(target)].find((e) => e.offsetParent !== null || e.closest("label")?.offsetParent != null) : undefined;
+    if (!el && target && tries > 0) return focusFix(target, tries - 1);
+    const to = el ?? document.getElementById("step-content");
+    if (!to) return;
+    if (to.tabIndex < 0 && !to.hasAttribute("tabindex")) to.setAttribute("tabindex", "-1");
+    const shown = to.closest("label") ?? to;
+    shown.scrollIntoView({ block: "center", behavior: "smooth" });
+    to.focus({ preventScroll: true });
+    window.requestAnimationFrame(() => {
+      if (!to.isConnected && tries > 0) return focusFix(target, tries - 1);
+      shown.classList.add("fix-flash");
+      window.setTimeout(() => shown.classList.remove("fix-flash"), 2000);
+    });
+  });
+}
+
 /** "Open desk file or dam.json…" from the palette: the visible desk-file chooser's own file input. */
 function openDeskFilePicker(show: () => void): void {
   show();
@@ -283,6 +311,14 @@ export function Desk() {
       el.querySelector<HTMLButtonElement>('[data-testid="handoff-actions"] button:not(:disabled)')?.focus({ preventScroll: true });
     });
   }, [goStep]);
+  // Fix… in the rail checklist: the item's step, then its field or button focused (or the step itself).
+  const fixItem = useCallback(
+    (i: CheckItem) => {
+      goStep(i.step);
+      focusFix(i.target);
+    },
+    [goStep],
+  );
   const startJob = useCallback(
     (path: string) => {
       goStep("report");
@@ -483,9 +519,10 @@ export function Desk() {
           >
             <div className="min-w-0 flex flex-col gap-3 xl:order-1">
               <SituationStrip dam={dam} result={result} />
-              <StepRail dam={dam} result={recordAnalysis} step={step} setStep={setStep} />
+              <ProgressRing dam={dam} analysis={recordAnalysis} />
+              <StepRail dam={dam} result={recordAnalysis} desk={result} step={step} setStep={setStep} onFix={fixItem} />
             </div>
-            <div className="min-w-0 flex flex-col gap-4 xl:order-2">
+            <div className="min-w-0 flex flex-col gap-4 xl:order-2" id="step-content" tabIndex={-1}>
           {/* Guided setup and Flood draw on their own map; the other Workflow steps lead with the flood map. */}
           {tab === "workflow" && step !== "setup" && step !== "flood" ? (
             <WorkflowMap dam={dam} deskResult={result} open={mapOpen} onToggle={toggleMap} />
@@ -675,9 +712,9 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <TextField label="NID" value={dam.nid} onChange={(nid) => update({ nid })} tag={<FieldTag dam={dam} field="nid" />} />
           <TextField label="County" value={dam.county} onChange={(county) => update({ county })} tag={<FieldTag dam={dam} field="county" />} />
           <NumField label="Year" value={dam.year} onChange={(year) => update({ year })} tag={<FieldTag dam={dam} field="year" />} />
-          <NumField label="Height" suffix="ft" value={dam.heightFt} step={0.1} {...inputRange("heightFt", dam.heightFt)} onChange={(heightFt) => update({ heightFt })} tag={<FieldTag dam={dam} field="heightFt" />} />
-          <NumField label="Length" suffix="ft" value={dam.lengthFt} {...inputRange("lengthFt", dam.lengthFt)} onChange={(lengthFt) => update({ lengthFt })} tag={<FieldTag dam={dam} field="lengthFt" />} />
-          <NumField label="Crest" suffix="ft" value={dam.crestFt} step={0.1} onChange={(crestFt) => update({ crestFt })} tag={
+          <NumField label="Height" suffix="ft" fix="heightFt" value={dam.heightFt} step={0.1} {...inputRange("heightFt", dam.heightFt)} onChange={(heightFt) => update({ heightFt })} tag={<FieldTag dam={dam} field="heightFt" />} />
+          <NumField label="Length" suffix="ft" fix="lengthFt" value={dam.lengthFt} {...inputRange("lengthFt", dam.lengthFt)} onChange={(lengthFt) => update({ lengthFt })} tag={<FieldTag dam={dam} field="lengthFt" />} />
+          <NumField label="Crest" suffix="ft" fix="crestFt" value={dam.crestFt} step={0.1} onChange={(crestFt) => update({ crestFt })} tag={
             <>
               <FieldTag dam={dam} field="crestFt" />
               {crestNavdLabel(dam, result.datum).includes("converted") ? (
@@ -687,10 +724,10 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
               ) : null}
             </>
           } />
-          <NumField label="Streambed (breach bottom)" suffix="ft" value={dam.streambedFt} step={0.1} onChange={(streambedFt) => update({ streambedFt })} tag={<FieldTag dam={dam} field="streambedFt" />} />
+          <NumField label="Streambed (breach bottom)" fix="streambedFt" suffix="ft" value={dam.streambedFt} step={0.1} onChange={(streambedFt) => update({ streambedFt })} tag={<FieldTag dam={dam} field="streambedFt" />} />
           <NumField label="Spillway" suffix="ft" value={dam.spillwayFt} step={0.1} onChange={(spillwayFt) => update({ spillwayFt })} />
           <NumField label="Normal pool" suffix="ft" value={dam.normalPoolFt} step={0.1} onChange={(normalPoolFt) => update({ normalPoolFt })} />
-          <NumField label="Storage" suffix="ac-ft" value={dam.storageAcFt} {...inputRange("storageAcFt", dam.storageAcFt)} onChange={(storageAcFt) => update({ storageAcFt })} tag={<FieldTag dam={dam} field="storageAcFt" />} />
+          <NumField label="Storage" suffix="ac-ft" fix="storageAcFt" value={dam.storageAcFt} {...inputRange("storageAcFt", dam.storageAcFt)} onChange={(storageAcFt) => update({ storageAcFt })} tag={<FieldTag dam={dam} field="storageAcFt" />} />
           <NumField
             label="Surface area at top of dam"
             suffix="ac, 0 = unknown"
@@ -709,9 +746,9 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
             }
           />
           <NumField label="Drainage" suffix="mi²" value={dam.drainageMi2} step={0.1} onChange={(drainageMi2) => update({ drainageMi2 })} tag={<FieldTag dam={dam} field="drainageMi2" />} />
-          <NumField label="DEM crest" suffix="ft NAVD88, from the DEM" value={dam.demCrestFt} step={0.1} onChange={(demCrestFt) => update({ demCrestFt })} />
+          <NumField label="DEM crest" fix="demCrestFt" suffix="ft NAVD88, from the DEM" value={dam.demCrestFt} step={0.1} onChange={(demCrestFt) => update({ demCrestFt })} />
           <SelectField
-            label="Stated datum"
+            label="Stated datum" fix="statedDatum"
             value={dam.statedDatum}
             options={[...(dam.statedDatum === "" ? [["", "— choose —"] as [string, string]] : []), "Local", "NAVD88", "NGVD29"]}
             onChange={(statedDatum) => update({ statedDatum: statedDatum as DatumName })}
@@ -720,7 +757,7 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <NumField label="Longitude" suffix="°" value={dam.lon ?? NaN} step={0.00001} min={-180} max={180} warning={latLonWarning(dam, "lon")} onChange={(lon) => update({ lon })} tag={<FieldTag dam={dam} field="lon" />} />
           {dam.statedDatum === "NGVD29" ? (
             <NumField
-              label="NGVD29 → NAVD88 offset"
+              label="NGVD29 → NAVD88 offset" fix="datumOffsetFt"
               suffix="ft, 0 = VERTCON"
               value={dam.datumOffsetFt ?? 0}
               step={0.01}
@@ -1553,6 +1590,7 @@ function ScreenStep({ dam, result: deskResult }: { dam: DamRecord; result: Retur
   const { result, ref } = useAnalysisOfRecord(dam, deskResult);
   return (
     <section className="space-y-4">
+      <ReviewSummary dam={dam} result={result} where="review" />
       <div className="rounded-md border border-line bg-card p-4">
         <p className="text-xs tracking-widest text-muted uppercase" data-testid="screen-source">
           {ref ? `Schematic preview on the source of record: ${ref.label}` : "Desk screen: schematic preview"} (ND / ACER TM 11
@@ -1620,6 +1658,7 @@ function ReportStep({ dam, result: deskResult }: { dam: DamRecord; result: Retur
   const bundles = nd ? { nidFetchedUtc: nd.nidSource.fetchedUtc, state: nd.state } : undefined;
   return (
     <section ref={view} className="space-y-4">
+      <ReviewSummary dam={dam} result={result} where="report" />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs tracking-widest text-muted uppercase">Read from this desk</p>
@@ -1857,6 +1896,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
                   ranPresetLabel: str(c.ranPresetLabel),
                   ranMode: str(c.ranMode),
                   driving: Array.isArray(c.driving) ? (c.driving as NonNullable<HazardResult["driving"]>).slice(0, 8) : [],
+                  hits: parseHits(c.hits),
+                  hitsTotal: typeof c.hitsTotal === "number" ? c.hitsTotal : undefined,
                   warnings: typeof c.warnings === "number" ? c.warnings : 0,
                   layers: (c.layers as Record<string, number>) ?? {},
                   impacted: (c.impacted as Record<string, number>) ?? {},
@@ -2102,7 +2143,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/model")}>
           Run the flood model
         </button>
-        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/classify")}>
+        <button type="button" className={btn} disabled={handoff.busy} data-fix="classify" onClick={() => void start("/api/classify")}>
           Classify ({algs.classify})
         </button>
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
@@ -2266,16 +2307,34 @@ const RAIL_MARK: Record<"done" | "current" | "blocked" | "todo", { glyph: string
  * prerequisite problem is visible in navigation instead of surfacing as an error later.
  * Non-colour marks keep the state readable in grayscale and field mode.
  */
-function StepRail({ dam, result, step, setStep }: { dam: DamRecord; result: ReturnType<typeof analyze>; step: StepId; setStep: (s: StepId) => void }) {
+function StepRail({
+  dam,
+  result,
+  desk,
+  step,
+  setStep,
+  onFix,
+}: {
+  dam: DamRecord;
+  result: ReturnType<typeof analyze>;
+  desk: ReturnType<typeof analyze>;
+  step: StepId;
+  setStep: (s: StepId) => void;
+  onFix: (i: CheckItem) => void;
+}) {
+  // The checklist (2026-11-21): what holds each step, from missingForNext and the datum/flood flags of the desk
+  // record, and the step-done rules of the record of analysis (the same rules as the marks and the status bar).
+  const checks = useMemo(() => stepChecklist(dam, desk, result), [dam, desk, result]);
   return (
     <nav className="flex min-w-0 flex-col gap-0.5" aria-label="Pipeline" data-testid="step-rail">
       {STEPS.map((s, i) => {
         const st = railState(s.id as StepId, dam, result, step);
         const m = RAIL_MARK[st];
         const on = step === s.id;
+        const items = checks[s.id as StepId];
         return (
+          <Fragment key={s.id}>
           <button
-            key={s.id}
             type="button"
             onClick={() => setStep(s.id as StepId)}
             aria-current={on ? "step" : undefined}
@@ -2296,6 +2355,8 @@ function StepRail({ dam, result, step, setStep }: { dam: DamRecord; result: Retu
               <span className={"block text-xs " + (on ? "text-muted" : "text-muted")}>{m.label}</span>
             </span>
           </button>
+          <RailChecklist stepId={s.id as StepId} label={s.label} items={items} onFix={onFix} />
+          </Fragment>
         );
       })}
     </nav>
@@ -2687,6 +2748,7 @@ function NumField({
   max,
   warning,
   tag,
+  fix,
 }: {
   label: string;
   value: number;
@@ -2697,6 +2759,8 @@ function NumField({
   max?: number;
   warning?: string | null;
   tag?: ReactNode;
+  /** The rail checklist's Fix… target (data-fix). */
+  fix?: string;
 }) {
   return (
     <label className="block text-sm">
@@ -2711,6 +2775,7 @@ function NumField({
         min={min}
         max={max}
         aria-invalid={warning ? true : undefined}
+        data-fix={fix}
         // A missing value (NaN) shows blank, never 0; clearing the box makes it missing again.
         value={Number.isFinite(value) ? value : ""}
         onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
@@ -2773,17 +2838,20 @@ function SelectField({
   value,
   options,
   onChange,
+  fix,
 }: {
   label: string;
   value: string;
   options: (string | [string, string])[];
   onChange: (v: string) => void;
+  fix?: string;
 }) {
   return (
     <label className="block text-sm">
       <span className="text-muted">{label}</span>
       <select
         value={value}
+        data-fix={fix}
         onChange={(e) => onChange(e.target.value)}
         className="mt-1 h-11 w-full rounded-sm border border-line bg-paper px-3 text-ink"
       >
