@@ -749,6 +749,9 @@ class ClassificationTests(Base):
         self.assertIn("plain flag", line)
         self.assertNotIn("{", line)
         self.assertNotIn("'code'", line)
+        # a flag the chain repeats once per scenario is listed once
+        twice = {"suggested_label": None, "flags": [block["flags"][0], dict(block["flags"][0])]}
+        self.assertEqual(qr._package_line("ND00199", twice).count("nd911-FE82"), 1)
 
     def test_qgis_start_up_notices_are_not_logged(self):
         self.assertTrue(qr.is_noise("Can't load library /q/plugins/libpdal_plugin.so: libgflags.so.2.2: cannot open"))

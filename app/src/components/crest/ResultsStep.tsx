@@ -50,6 +50,12 @@ function toUrl(px: Uint8ClampedArray, w: number, h: number) {
   return c.toDataURL("image/png");
 }
 
+/**
+ * A source's column heading: ink text over a bar in the source's colour. The colour itself as text was 2.9:1 in field
+ * mode (Absaraka desk test 2026-11-21), and it is the same colour the map and charts use for that source.
+ */
+const sourceHead = (s: keyof typeof SOURCE_COLOR) => ({ boxShadow: `inset 0 -3px 0 ${SOURCE_COLOR[s]}` });
+
 export function ResultsStep({ dam, result }: { dam: DamRecord; result: Analysis }) {
   const lis = useRun(dam, "lisflood");
   const dss = useRun(dam, "dsswise");
@@ -451,14 +457,14 @@ function CompareTable({ dam, result, runs, ready }: { dam: DamRecord; result: An
         <thead className="text-xs tracking-wide text-muted uppercase">
           <tr>
             <th className="px-2 py-1 font-medium" />
-            <th className="px-2 py-1 font-medium" style={{ color: SOURCE_COLOR.desk }}>Desk strip</th>
+            <th className="px-2 py-1 font-medium text-ink" style={sourceHead("desk")}>Desk strip</th>
             {terrain ? (
               <th className="px-2 py-1 font-medium" data-testid="compare-terrain-col">
                 Terrain layer
               </th>
             ) : null}
             {cols.map((c) => (
-              <th key={c.s} className="px-2 py-1 font-medium" style={{ color: SOURCE_COLOR[c.s] }}>
+              <th key={c.s} className="px-2 py-1 font-medium text-ink" style={sourceHead(c.s)}>
                 {SOURCE_LABEL[c.s]}
               </th>
             ))}
@@ -520,7 +526,7 @@ function StructureTable({ dam, result, runs, ready }: { dam: DamRecord; result: 
           <tr>
             <th className="px-2 py-1 font-medium" rowSpan={2}>Point</th>
             {cols.map((c) => (
-              <th key={c} colSpan={3} className="border-l border-line px-2 py-1 font-medium" style={{ color: SOURCE_COLOR[c] }}>
+              <th key={c} colSpan={3} className="border-l border-line px-2 py-1 font-medium text-ink" style={sourceHead(c)}>
                 {SOURCE_LABEL[c]}
               </th>
             ))}

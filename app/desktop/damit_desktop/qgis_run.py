@@ -934,9 +934,11 @@ def _package_line(dam_id: str, block: dict) -> str:
         text += "."
     flags = block.get("flags")
     if isinstance(flags, list) and flags:
-        text += " Flags: " + "; ".join(flag_text(f) for f in flags[:6]) + "."
-        if len(flags) > 6:
-            text += f" (+{len(flags) - 6} more in the package)"
+        # The chain repeats a flag once per scenario (Absaraka: the same 3 receptors twice): each one once here.
+        words = list(dict.fromkeys(flag_text(f) for f in flags))
+        text += " Flags: " + "; ".join(words[:6]) + "."
+        if len(words) > 6:
+            text += f" (+{len(words) - 6} more in the package)"
     return text + " A screening suggestion, not an official hazard classification."
 
 
