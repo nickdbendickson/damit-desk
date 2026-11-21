@@ -444,7 +444,12 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/handoff":
             # The algorithm ids the buttons will call (DamIT defaults or overrides), for the Report step to show.
-            self._send(200, json.dumps(handoff_config().as_json()).encode(), "application/json")
+            # Also the folder a blank Work folder field means, and a one-line notice when this run's settings came
+            # over from the old DamIT Crest folder (2026-11-21: that copy was only printed in the terminal).
+            info = handoff_config().as_json()
+            info["work"] = str(qgis_run.default_work_dir())
+            info["notices"] = list(STORAGE_NOTICES)
+            self._send(200, json.dumps(info).encode(), "application/json")
             return
         if parsed.path == "/api/job":
             job_id = (parse_qs(parsed.query).get("id") or [""])[0]
@@ -707,6 +712,12 @@ def serve(root: Path | None = None, port: int = PREFERRED_PORT) -> ThreadingHTTP
 SETTINGS_NAME = "damit-desk-settings.json"
 #: Its name before the rename to DamIT Desk (2026-11-20): still read when the new one is missing.
 LEGACY_SETTINGS_NAME = "damit-crest-settings.json"
+#: Written into the new folder when it was copied from the old DamIT Crest one: where from, and when.
+MIGRATED_NOTE = "COPIED-FROM-DAMIT-CREST.txt"
+
+
+#: One-line notices about this run's settings folder (a copy from the old DamIT Crest folder), for the Report step.
+STORAGE_NOTICES: list[str] = []
 
 
 def _data_home() -> Path:
@@ -738,15 +749,27 @@ def prepare_storage(log=print) -> tuple[Path, Path]:
     chosen DEM and the NID cache carry over; the old folder is left exactly as it was. When the copy cannot be made the
     old folder is used as it is. Later runs: a settings file missing from the new folder is read from the old one."""
     store, legacy = storage_dir(), legacy_storage_dir()
+    STORAGE_NOTICES.clear()
+
+    def notice(line: str) -> None:
+        STORAGE_NOTICES.append(line)
+        log("DamIT Desk: " + line)
+
     if not store.exists() and legacy.is_dir():
         try:
             shutil.copytree(legacy, store, symlinks=True,
                             ignore=shutil.ignore_patterns("SingletonLock", "SingletonSocket", "SingletonCookie",
                                                           "*.lock", "lockfile"))
-            log(f"DamIT Desk: copied your DamIT Crest settings and records from {legacy} to {store}. "
-                "The old folder is left as it was.")
+            notice(f"first start: copied the old DamIT Crest settings and records from {legacy} to {store}. "
+                   "The old folder is left as it was; delete it yourself once you no longer need DamIT Crest.")
+            try:
+                (store / MIGRATED_NOTE).write_text(
+                    f"Copied from {legacy} by DamIT Desk on {time.strftime('%Y-%m-%d %H:%M %Z')}.\n"
+                    "The old folder was not changed.\n", encoding="utf-8")
+            except OSError:
+                pass
         except (OSError, shutil.Error) as exc:
-            log(f"DamIT Desk: could not copy {legacy} to {store} ({exc}); using the old folder.")
+            notice(f"could not copy the old DamIT Crest folder {legacy} to {store} ({exc}); using the old folder.")
             return legacy, _settings_in(legacy)
     store.mkdir(parents=True, exist_ok=True)
     settings = store / SETTINGS_NAME
@@ -757,7 +780,10 @@ def prepare_storage(log=print) -> tuple[Path, Path]:
                 try:
                     shutil.copy2(source, settings)
                 except OSError:
+                    notice(f"reading the settings from the old file {source} (it could not be copied to {settings}).")
                     return store, source
+                if source.parent != store:
+                    notice(f"copied the old DamIT Crest settings file {source} to {settings}.")
                 break
     return store, settings
 

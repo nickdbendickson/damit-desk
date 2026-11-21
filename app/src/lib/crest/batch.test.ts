@@ -10,6 +10,8 @@ import {
   aimAlongChannel,
   channelAim,
   batchCsv,
+  batchCsvName,
+  DAM_RETRY_MS,
   deriveFromDem,
   deriveRecord,
   estimateSeconds,
@@ -21,6 +23,7 @@ import {
   runBatch,
   runningEstimate,
   runStructure,
+  runStructureWithRetry,
   selectStructures,
   sortRows,
   type BatchRow,
@@ -252,6 +255,60 @@ describe("one structure through the desk path", () => {
     const ctl = new AbortController();
     ctl.abort();
     assert.equal((await runBatch(list, { fetchDem: fakeDem, signal: ctl.signal })).length, 0);
+  });
+});
+
+describe("a dam whose terrain fetch fails once is tried again by itself (fresh install test 2026-11-21)", () => {
+  const flakyDem = (failures: number) => {
+    let n = 0;
+    const f = async (r: DemRequest) => {
+      n++;
+      if (n <= failures) throw new Error("Could not reach the 3DEP terrain service (Failed to fetch). Connect and build it again.");
+      return fakeDem(r);
+    };
+    return { f, calls: () => n };
+  };
+
+  it("one 'Failed to fetch' is retried after a wait and the row is done, no Resume needed", async () => {
+    const dem = flakyDem(1);
+    const status: string[] = [];
+    const rows = await runBatch([S({ id: "A" })], { fetchDem: dem.f, fetchNd911: noNd911, retryWaitsMs: [1, 1], onStatus: (m) => status.push(m) });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, "done", rows[0].reason ?? "");
+    assert.ok(status.some((m) => /A: a service could not be reached .*trying again in 0 s/.test(m)), status.join("\n"));
+  });
+
+  it("a fetch that keeps failing is kept as failed after the retries, and says how many times it was tried", async () => {
+    const dem = flakyDem(99);
+    const { row } = await runStructureWithRetry(S(), { fetchDem: dem.f, fetchNd911: noNd911 }, [1, 1]);
+    assert.equal(row.status, "failed");
+    assert.match(row.reason ?? "", /Failed to fetch.*\(tried 3 times\)$/);
+    assert.equal(dem.calls(), 3);
+  });
+
+  it("a failure that is not the network (bad data) is not retried, and Stop ends a wait at once", async () => {
+    let calls = 0;
+    const broken = async () => {
+      calls++;
+      throw new Error("3DEP down");
+    };
+    const { row } = await runStructureWithRetry(S(), { fetchDem: broken }, [1, 1]);
+    assert.equal(row.status, "failed");
+    assert.equal(calls, 1);
+    const ctl = new AbortController();
+    const dem = flakyDem(99);
+    const t0 = Date.now();
+    const p = runStructureWithRetry(S(), { fetchDem: dem.f }, [60_000], ctl.signal);
+    setTimeout(() => ctl.abort(), 20);
+    const out = await p;
+    assert.ok(Date.now() - t0 < 5_000, "the 60 s wait was cut short");
+    assert.equal(out.row.status, "failed");
+    assert.equal(dem.calls(), 1);
+    assert.deepEqual(DAM_RETRY_MS, [5_000, 15_000]);
+  });
+
+  it("the CSV is named for DamIT Desk", () => {
+    assert.equal(batchCsvName(new Date("2026-11-21T04:10:00Z")), "damit-desk-batch-2026-11-21.csv");
   });
 });
 

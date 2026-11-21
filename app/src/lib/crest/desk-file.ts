@@ -26,7 +26,8 @@ export const DESK_FILE_MAX_BYTES = 400 * 1024 * 1024;
 export type DeskFile = {
   format: typeof DESK_FILE_FORMAT;
   formatVersion: number;
-  crestVersion: string;
+  /** The DamIT Desk build that saved the file. Files saved before 2026-11-21 call it `crestVersion` (still read). */
+  deskVersion: string;
   savedAt: string;
   activeId: string;
   dams: DamRecord[];
@@ -37,7 +38,7 @@ export function deskFileText(dams: DamRecord[], activeId: string, now = new Date
   const file: DeskFile = {
     format: DESK_FILE_FORMAT,
     formatVersion: DESK_FILE_VERSION,
-    crestVersion: CREST_VERSION,
+    deskVersion: CREST_VERSION,
     savedAt: now.toISOString(),
     activeId,
     dams,
@@ -59,7 +60,8 @@ export type OpenedFile =
       dams: DamRecord[];
       activeId?: string;
       savedAt?: string;
-      crestVersion?: string;
+      /** The build that wrote the file: `deskVersion`, or `crestVersion` / `crest_version` in older files. */
+      deskVersion?: string;
       notes: string[];
     }
   | { ok: false; reason: string };
@@ -321,7 +323,7 @@ export function openDeskFile(textIn: string): OpenedFile {
       dams,
       activeId: activeId && seen.has(activeId) ? activeId : dams[0].id,
       savedAt: text(j.savedAt, 40),
-      crestVersion: text(j.crestVersion, 80),
+      deskVersion: text(j.deskVersion, 80) ?? text(j.crestVersion, 80),
       notes,
     };
   }
@@ -334,7 +336,7 @@ export function openDeskFile(textIn: string): OpenedFile {
         kind: "record",
         dams: [d],
         activeId: d.id,
-        crestVersion: text(j.crest_version, 80),
+        deskVersion: text(j.crest_version, 80),
         notes,
       };
     notes.push(
@@ -349,7 +351,7 @@ export function openDeskFile(textIn: string): OpenedFile {
       kind: "inputs",
       dams: [d],
       activeId: d.id,
-      crestVersion: text(j.crest_version, 80),
+      deskVersion: text(j.crest_version, 80),
       notes,
     };
   return {
