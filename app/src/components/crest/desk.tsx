@@ -40,10 +40,15 @@ import {
 } from "@/lib/crest/nd911";
 import { NSI_ATTRIBUTION } from "@/lib/crest/nsi";
 import {
+  currentTerrain,
   DEM_ATTRIBUTION,
   DEM_ATTRIBUTION_SHORT,
+  labelWithTerrain,
+  layerLabel,
   lookupArea,
   OUTLINE_LABEL,
+  stampTerrain,
+  terrainInfo,
   outlineAcresNote,
   traceStartNote,
   deepCellsNote,
@@ -112,6 +117,8 @@ import { jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJob
 import {
   firstOpenWorkflowStep,
   railState,
+  screeningHold,
+  screeningOutcome,
   STEP_DONE,
   stepForTab,
   tabForStep,
@@ -283,6 +290,19 @@ export function Desk() {
     // The shared defaults a new record starts from: your defaults file (desktop) or this browser's copy (web).
     void loadSettings();
   }, []);
+
+  // The note stays on the step and dam it was shown on (Absaraka desk test 2026-11-21: "Desk file opened…" stayed on
+  // every step until dismissed). Moving to another step or dam clears it.
+  const here = `${activeId}|${step}`;
+  const hereRef = useRef(here);
+  hereRef.current = here;
+  const noteAt = useRef<string | null>(null);
+  useEffect(() => {
+    noteAt.current = openNote ? hereRef.current : null;
+  }, [openNote]);
+  useEffect(() => {
+    if (noteAt.current && noteAt.current !== here) setOpenNote(null);
+  }, [here]);
 
   const dam = activeDam({ dams, activeId });
   const result = useMemo(() => analyze(dam), [dam]);
@@ -593,7 +613,7 @@ export function Desk() {
             </ul>
           </details>
           <p className="mt-1">
-            Data: {PLSS_ATTRIBUTION.split(" Public data")[0]}; {ND911_ATTRIBUTION.split(" Public data")[0]}; {DEM_ATTRIBUTION_SHORT}.
+            Data: {PLSS_ATTRIBUTION.split(" Public data")[0]}; {ND911_ATTRIBUTION.split(" Public data")[0]}; {currentTerrain().local ? `${DEM_ATTRIBUTION_SHORT} or ${currentTerrain().label}` : DEM_ATTRIBUTION_SHORT}.
           </p>
         </div>
       </footer>
@@ -851,7 +871,7 @@ function BreachStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <Stat k="Routed peak" v={`${num(result.breach.peakCfs, 0)} cfs`} />
           <Stat k="Froehlich 1995 check" v={`${num(result.breach.empiricalPeakCfs, 0)} cfs`} />
           <Stat k="Time to peak" v={`${num(result.breach.timeToPeakHr, 2)} hr`} />
-          <Stat k="Duration" v={`${num(result.breach.durationHr, 2)} hr`} />
+          <Stat k="Duration (pool drained)" v={`${num(result.breach.durationHr, 2)} hr`} />
           <Stat k="Bottom width" v={`${num(result.breach.bottomWidthFt, 0)} ft`} />
           <Stat k="Released volume" v={`${num(result.breach.volumeAcFt, 0)} ac-ft`} />
         </div>
@@ -1094,7 +1114,8 @@ function OutlinePanel({
       setBusy("Preparing the terrain request…");
       const r = await buildInundationInWorker(dam, result, { yieldFn: breathe, onStatus: setBusy, signal: ctl.signal });
       if (useDesk.getState().activeId !== id) return;
-      if (r.ok) update({ outline: r.cache });
+      // Stamped with the terrain it was built on (the local DEM in use, else 3DEP): labels and credits read it.
+      if (r.ok) update({ outline: stampTerrain(r.cache) });
       else setError(r.reason);
     } catch (e) {
       if ((e as Error).message !== CANCELLED) setError((e as Error).message);
@@ -1160,7 +1181,7 @@ function OutlinePanel({
         </div>
       </div>
       <p className="mt-1 text-sm font-medium" data-testid="outline-label">
-        {layer === "routed" ? ROUTED_LABEL : OUTLINE_LABEL}.
+        {outline.state === "ready" ? layerLabel(dam.outline, ROUTED_LABEL) : labelWithTerrain(layer === "routed" ? ROUTED_LABEL : OUTLINE_LABEL, currentTerrain())}.
       </p>
       <p className={"mt-1 text-sm " + (rec.needsRunner ? "text-amber" : "text-muted")} role={rec.needsRunner ? "alert" : undefined} data-testid="inundation-primary-note">
         {rec.note}
@@ -1198,7 +1219,7 @@ function OutlinePanel({
       {s && routed ? (
         <>
           <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-sm bg-line sm:grid-cols-4">
-            <Stat k="Flooded area" v={`${num(routed.floodedAc, 0)} ac`} />
+            <Stat k="Flooded area (mapped, ≥ 0.1 ft)" v={`${num(s.outlineAc, 0)} ac`} />
             <Stat k="Routed peak out" v={`${num(routed.peakOutCfs, 0)} cfs`} />
             <Stat k="Peak attenuated" v={`${num(routed.routedPeakFellBy * 100, 0)} %`} />
             <Stat k="Channel routed" v={`${num(routed.channelKm, 1)} km`} />
@@ -1214,7 +1235,11 @@ function OutlinePanel({
               : `All ${routed.sections} cross-sections carried the routed peak.`}
           </p>
           <p className="mt-1 text-xs text-muted">
-            By depth band: {s.bands.map((b) => `${b.label} ${num(b.ac, 0)} ac`).join(" · ")}. The PLSS and 911 lists below are
+            By depth band: {s.bands.map((b) => `${b.label} ${num(b.ac, 0)} ac`).join(" · ")}
+            {Math.abs(routed.floodedAc - s.outlineAc) >= 1
+              ? ` (${num(s.outlineAc, 0)} ac on the map; ${num(routed.floodedAc, 0)} ac counting every wet cell, also water shallower than 0.1 ft)`
+              : ""}
+            . The PLSS and 911 lists below are
             against this flood; the dated flood strip stays on the map only as the last-resort fallback.
           </p>
           {routed.reach?.incomplete ? (
@@ -1238,7 +1263,7 @@ function OutlinePanel({
           <p className="mt-1 text-xs text-muted" data-testid="outline-dem">
             Terrain: {s.dem.width} × {s.dem.height} cells at {num(s.dem.cellM, 0)} m (NAVD88); depth from Muskingum-Cunge
             routing of the breach hydrograph on DEM cross-sections and {routed.method === "spread" ? "a volume spread" : "a terrain fill"}, not a full 2-D hydraulic model. Built{" "}
-            {new Date(outline.state === "ready" ? outline.builtAt : "").toLocaleString()} <SavedNote id={dam.id} /> {DEM_ATTRIBUTION}
+            {new Date(outline.state === "ready" ? outline.builtAt : "").toLocaleString()} <SavedNote id={dam.id} /> {terrainInfo(dam.outline?.source).attribution}
           </p>
         </>
       ) : s ? (
@@ -1283,7 +1308,7 @@ function OutlinePanel({
             {s.dem.missing ? ` ${s.dem.missing} cells missing,` : ""} {s.rings} rings after smoothing; {s.droppedPatches}{" "}
             patches under the minimum dropped, {s.filledHoles} holes filled. Water surface = the traced channel bed (pits
             filled) + the desk depth at that distance downstream; ground must be under it and connected to the channel.
-            Built {new Date(outline.state === "ready" ? outline.builtAt : "").toLocaleString()} <SavedNote id={dam.id} /> {DEM_ATTRIBUTION}
+            Built {new Date(outline.state === "ready" ? outline.builtAt : "").toLocaleString()} <SavedNote id={dam.id} /> {terrainInfo(dam.outline?.source).attribution}
           </p>
         </>
       ) : null}
@@ -1362,9 +1387,9 @@ function PlssPanel({ lookup, plss, against, basis }: { lookup: FloodStrip | null
             not listed: {t.sliversIgnored}
             {t.uncoveredAc >= SLIVER_AC ? `; ${num(t.uncoveredAc, 1)} ac of the ${against} lies outside every fetched section` : ""}.
             {against === "routed flood"
-              ? ` ${ROUTED_LABEL}.`
+              ? ` ${(lookup?.properties as { disclaimer?: string } | undefined)?.disclaimer ?? ROUTED_LABEL}.`
               : against !== "flood strip"
-                ? ` ${OUTLINE_LABEL}.`
+                ? ` ${(lookup?.properties as { disclaimer?: string } | undefined)?.disclaimer ?? OUTLINE_LABEL}.`
                 : basis.startsWith("the schematic")
                   ? " Approximate, and a dated last resort: the strip is the schematic desk valley, not a mapped flood extent — build the terrain inundation layer for the current method."
                   : ` Strip from ${basis}.`}{" "}
@@ -1610,12 +1635,44 @@ function Nd911Panel({
   );
 }
 
+/**
+ * The last QGIS screening for this dam (Absaraka desk test 2026-11-21): PARTIAL at its time limit, finished with no
+ * class (not determined), failed, or finished with a preliminary class. The desk screen below is a separate thing.
+ */
+function ScreeningState({ dam }: { dam: DamRecord }) {
+  const r = dam.screeningResult;
+  if (!r) return null;
+  const hold = screeningHold(dam);
+  const when = new Date(r.at);
+  const at = Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString()})`;
+  const figures = [r.areaAc != null ? `${Math.round(r.areaAc).toLocaleString()} ac wet` : null, r.maxDepthFt != null ? `max ${r.maxDepthFt.toFixed(1)} ft` : null].filter(Boolean).join(", ");
+  return (
+    <div
+      className={"rounded-md border p-3 text-sm " + (hold ? "border-2 border-amber bg-sand" : "border-line bg-card")}
+      role={hold ? "status" : undefined}
+      data-testid="screening-state"
+      data-state={hold ? hold.kind : "done"}
+    >
+      <p className="text-xs tracking-widest text-muted uppercase">QGIS screening (DamIT Screener){at}</p>
+      <p className="mt-1 font-medium">{hold ? hold.text : `QGIS screening finished: preliminary ${r.label}`}</p>
+      {figures ? <p className="text-muted">Screening flood so far: {figures}{hold?.kind === "partial" ? " (a lower bound: the flood had not finished spreading)" : ""}.</p> : null}
+      {hold ? (
+        <p className="mt-1 text-muted">
+          This step stays open until a screening finishes with a class, or the class comes from Classify on a finished model run. Raise
+          DAMIT_SCREENING_TIMEOUT_S, or import the flood model&apos;s rasters on Results.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function ScreenStep({ dam, result: deskResult }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const update = useDesk((s) => s.update);
   const { result, ref } = useAnalysisOfRecord(dam, deskResult);
   return (
     <section className="space-y-4">
       <ReviewSummary dam={dam} result={result} where="review" />
+      <ScreeningState dam={dam} />
       <div className="rounded-md border border-line bg-card p-4">
         <p className="text-xs tracking-widest text-muted uppercase" data-testid="screen-source">
           {ref ? `Schematic preview on the source of record: ${ref.label}` : "Desk screen: schematic preview"} (ND / ACER TM 11
@@ -1872,6 +1929,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       // Classify: the downstream receptors (and drawn area) go to damit:classify, so the chosen preset or custom
       // methods judge them. The keys tie the result to this choice and these receptors.
       const receptors = path === "/api/classify" ? classifyReceptors(dam, result) : undefined;
+      // The screening's outcome is kept with the dam it ran for (rail, status bar and Screen step).
+      const screenFor = path === "/api/screen" ? dam.id : null;
       const ran = receptors
         ? { damId: dam.id, choiceKey: choiceKey(damChoice(dam)), receptorKey: receptorKey(receptors), choiceText: choiceText(damChoice(dam)) }
         : null;
@@ -1921,6 +1980,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
             const found = await (await fetch(`/api/job?id=${job.id}`, { headers: crestApiHeaders() })).json();
             handoff.log = String(found.log || "");
             if (found.done && found.partial && typeof found.warning === "string") handoff.warning = found.warning;
+            if (found.done && screenFor && useDesk.getState().activeId === screenFor) update({ screeningResult: screeningOutcome(found) });
             if (found.done && ran && found.ok && found.classification?.suggestedClass && useDesk.getState().activeId === ran.damId) {
               const c = found.classification as Record<string, unknown>;
               const str = (v: unknown) => (typeof v === "string" && v ? v : null);
@@ -2497,7 +2557,7 @@ function InspectorPanel({ dam, result, step }: { dam: DamRecord; result: ReturnT
       {dam.outline != null ? (
         <div className="rounded-md border border-line bg-card px-3 py-2 text-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Terrain</p>
-          <p className="mt-1 text-muted text-xs">Terrain outline on record (built from 3DEP).</p>
+          <p className="mt-1 text-muted text-xs">Terrain outline on record (built from the {terrainInfo(dam.outline?.source).local ? terrainInfo(dam.outline?.source).label : "3DEP terrain"}).</p>
         </div>
       ) : null}
     </aside>
@@ -2663,7 +2723,7 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
       <p className="mt-1 text-xs text-muted" data-testid="outline-export-note">
         {outline.state === "ready" && outline.layer === "routed" ? "Routed terrain flood" : "Terrain outline"} (WGS 84):{" "}
         {ol
-          ? `${outline.state === "ready" && outline.layer === "routed" ? ROUTED_LABEL : OUTLINE_LABEL}; ${num(ol.properties.outline_area_ac, 1)} ac, depth bands, with the PLSS and 911 lists against it. ${DEM_ATTRIBUTION_SHORT}.`
+          ? `${layerLabel(dam.outline, ROUTED_LABEL)}; ${num(ol.properties.outline_area_ac, 1)} ac, depth bands, with the PLSS and 911 lists against it. ${terrainInfo(dam.outline?.source).short}.`
           : outline.message}
       </p>
       <p className="mt-1 text-xs text-muted">

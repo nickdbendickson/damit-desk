@@ -109,6 +109,37 @@ export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: Hazard
   ];
 }
 
+/**
+ * The two structure counts the desk can show, each with its own source (Absaraka desk test 2026-11-21: the Report said
+ * "230 of 1,670 wet" from damit:classify while its table and the Dashboard said 1 wet of 4, with nothing to tell them
+ * apart). desk = the desk's own receptor list (911 address points and mapped seeds); classify = the real structures the
+ * last current damit:classify judged, or null when it has not run for these receptors.
+ */
+export function structureCounts(
+  result: Pick<Analysis, "flood">,
+  hazard?: HazardResult | null,
+): { desk: { wet: number; total: number }; classify: { wet: number | null; total: number } | null } {
+  const desk = result.flood.receptors;
+  const total = hazard?.layers?.STRUCTURES ?? 0;
+  return {
+    desk: { wet: desk.filter((r) => r.flooded).length, total: desk.length },
+    classify: hazard && total ? { wet: hazard.wetStructures ?? hazard.impacted?.STRUCTURES ?? null, total } : null,
+  };
+}
+
+/** The Report's receptor table heading and the note under it: which list it is, and where the other count lives. */
+export function receptorSection(result: Pick<Analysis, "flood">, hazard?: HazardResult | null): { title: string; note: string | null } {
+  const c = structureCounts(result, hazard);
+  const n = (v: number) => v.toLocaleString("en-US");
+  const title = `Desk receptors: ${n(c.desk.wet)} of ${n(c.desk.total)} wet (911 address points and mapped structures)`;
+  if (!c.classify) return { title, note: null };
+  const wet = c.classify.wet == null ? `${n(c.classify.total)} checked` : `${n(c.classify.wet)} of ${n(c.classify.total)} wet`;
+  return {
+    title,
+    note: `This table is the desk's own receptor list. damit:classify judged the real structures (${wet}) for the class above; every one of them is in its report and GeoPackage (damit_hazard_receptors.gpkg).`,
+  };
+}
+
 /** Every receptor (dry ones too), as the CSV export from the paper toolbar. */
 export function receptorCsv(result: Analysis): string {
   const head = [

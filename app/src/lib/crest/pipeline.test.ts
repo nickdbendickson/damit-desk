@@ -7,6 +7,8 @@ import {
   firstOpenWorkflowStep,
   pipelineProgress,
   railState,
+  screeningHold,
+  screeningOutcome,
   STEP_DONE,
   STEP_DONE_RULE,
   STEP_ORDER,
@@ -14,7 +16,7 @@ import {
   tabForStep,
   TABS,
 } from "./pipeline.ts";
-import { blankDam, SAMPLE_DAMS } from "./samples.ts";
+import { blankDam, emptyDam, SAMPLE_DAMS } from "./samples.ts";
 import type { DamRecord, StepId } from "./types.ts";
 
 const sample = (): DamRecord => structuredClone(SAMPLE_DAMS[0]);
@@ -50,6 +52,35 @@ describe("pipeline steps", () => {
     assert.equal(pipelineProgress(d, a).done, before + 3);
     d.hazardResult = { suggestedClass: "High" } as never;
     assert.equal(pipelineProgress(d, a).done, before + 4);
+  });
+
+  it("a PARTIAL or not-determined QGIS screening keeps Screen open, so the bar is not 8/8 (Absaraka 2026-11-21)", () => {
+    const d = sample();
+    const low = { screen: { level: "Low" as const } };
+    assert.equal(STEP_DONE.screen(d, low), true);
+    d.screeningResult = screeningOutcome({ ok: true, partial: true, timedOut: true, screening: { suggested_label: null }, flood: { acres: 2228.4, maxDepthFt: 13.13 } });
+    assert.equal(d.screeningResult.state, "partial");
+    assert.equal(d.screeningResult.reason, "time limit");
+    assert.equal(d.screeningResult.areaAc, 2228.4);
+    assert.equal(STEP_DONE.screen(d, low), false);
+    assert.match(screeningHold(d)!.text, /PARTIAL \(time limit\): no preliminary class \(not determined\)/);
+    d.screeningResult = screeningOutcome({ ok: true, screening: { suggested_label: null } });
+    assert.equal(screeningHold(d)!.kind, "not determined");
+    assert.equal(STEP_DONE.screen(d, low), false);
+    d.screeningResult = screeningOutcome({ ok: false });
+    assert.equal(screeningHold(d)!.kind, "failed");
+    d.screeningResult = screeningOutcome({ ok: true, screening: { suggested_label: "Significant" } });
+    assert.equal(screeningHold(d), null);
+    assert.equal(STEP_DONE.screen(d, low), true);
+  });
+
+  it("+ New starts blank: nothing complete, no placeholder peak (Absaraka 2026-11-21)", () => {
+    const d = emptyDam();
+    for (const k of ["heightFt", "lengthFt", "crestFt", "streambedFt", "storageAcFt", "drainageMi2"] as const) assert.ok(Number.isNaN(d[k]), k);
+    assert.equal(d.receptors.length, 0);
+    const a = analyze(d);
+    assert.equal(pipelineProgress(d, a).done, 0);
+    assert.ok(!Number.isFinite(a.breach.peakCfs));
   });
 
   it("the screen is not complete while it is held at Review", () => {

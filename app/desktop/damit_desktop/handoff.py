@@ -11,6 +11,7 @@ import math
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -228,6 +229,20 @@ def lonlat_to_5070(lon: float, lat: float) -> tuple[float, float]:
     return rho * math.sin(theta), rho0 - rho * math.cos(theta)
 
 
+def _replace(tmp: Path, path: Path, tries: int = 20) -> None:
+    """os.replace, retried briefly on PermissionError. On Windows a replace onto a file another thread is replacing
+    or reading at that instant fails with 'Access is denied' (seen in CI on the concurrent-write test); a few
+    milliseconds later it goes through. Elsewhere the first try succeeds."""
+    for i in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.01 * (i + 1))
+
+
 def _dump(path: Path, obj) -> None:
     """Write JSON atomically. A crash mid-write must not leave a truncated dam.json — write_dam_folder then
     refuses to overwrite it (not a valid record) and the folder is stuck until someone deletes the file by hand.
@@ -237,7 +252,7 @@ def _dump(path: Path, obj) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
     try:
         tmp.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        _replace(tmp, path)
     except OSError:
         try:
             tmp.unlink()

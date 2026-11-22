@@ -9,6 +9,7 @@ import {
   PAPER_NOTICE,
   paperFlagsCoded,
   paperRows,
+  receptorSection,
   receptorCsv,
   receptorMetrics,
   stampClass,
@@ -114,6 +115,7 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
   // The receptor rows: damit:classify's real receptors when its result is current, else the desk's own list.
   const metrics = receptorMetrics(result, lead.kind === "hazard" ? dam.hazardResult : null);
   const { rows, shown, total } = paperRows(result);
+  const section = receptorSection(result, lead.kind === "hazard" ? dam.hazardResult : null);
   const flags = paperFlagsCoded(result, runWarnings);
   const deepest = [...result.flood.receptors]
     .filter((r) => r.flooded)
@@ -207,6 +209,10 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
 
       <section className="p-section">
         <h2>Receptor impacts</h2>
+        <p className="fine" data-testid="paper-receptor-source">
+          <b>{section.title}.</b>
+          {section.note ? ` ${section.note}` : ""}
+        </p>
         {rows.length ? (
           <div className="p-scroll">
             <table className="recepttab">

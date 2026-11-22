@@ -80,7 +80,7 @@ if args[:1] == ["help"]:
     if name == "classify":
         # damit_hazard/algorithms/classify.py (PR #1): presets, rasters, the six receptor layers and DOMAIN.
         params = ["PRESET", "METHODS", "MODIFIERS", "SCENARIOS", "OVERRIDES", "APPLY_ADVISORY", "RUN_SCENARIO",
-                  "MODEL_DIM", "DEPTH", "VELOCITY", "DV", "WSE", "NONBREACH", "ARRIVAL", "METRES", "STRUCTURES",
+                  "MODEL_DIM", "DEPTH", "VELOCITY", "DV", "WSE", "NONBREACH", "ARRIVAL", "METRES", "TERRAIN", "TERRAIN_UNITS", "STRUCTURES",
                   "ROADS", "RAIL", "FACILITIES", "LIFELINES", "ENVIRONMENT", "DOMAIN", "EXTRA_RUNS", "DAM_JSON",
                   "CHARTS_JSON", "RAIL_TRAINS_LOOKUP", "DAM_NAME", "OUTPUT"]
         if os.environ.get("FAKE_CLASSIFY") == "no-receptors":
@@ -720,6 +720,44 @@ class ClassificationTests(Base):
         with mock.patch.dict(os.environ, {"DAMIT_RAIL_TRAINS_LOOKUP": str(lookup)}):
             qr.run_classify(dam, ANALYSIS, str(self.root / "work2"), self.log)
         self.assertIn("--RAIL_TRAINS_LOOKUP=" + str(lookup.resolve()), self.classify_run())
+
+    def test_classify_sends_the_chosen_dem_as_terrain(self):
+        # Absaraka desk test 2026-11-21: the DEM chosen in the panel never reached damit:classify, so 219 structures
+        # on NoData cells next to water were scored dry ("no run DEM / terrain was available").
+        dem = self.root / "cass_10m.vrt"
+        dem.write_text("<VRTDataset/>", encoding="utf-8")
+        dam = {**DAM, "receptors": SEEDS, "depthRaster": self.depth(), "demPath": str(dem),
+               "classification": {"mode": "preset", "preset": "NE", "presetLabel": "Nebraska"}}
+        result = qr.run_classify(dam, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        self.assertIn("--TERRAIN=" + str(dem.resolve()), self.classify_run())
+        self.assertTrue(any(line.startswith("Run DEM / terrain for NoData depth:") for line in self.lines))
+
+    def test_classify_without_a_dem_says_so_and_sends_no_terrain(self):
+        dam = {**DAM, "receptors": SEEDS, "depthRaster": self.depth(),
+               "classification": {"mode": "preset", "preset": "NE", "presetLabel": "Nebraska"}}
+        qr.run_classify(dam, ANALYSIS, str(self.root / "work"), self.log)
+        self.assertNotIn("--TERRAIN=", self.classify_run())
+        self.assertTrue(any(line.startswith("No DEM chosen:") for line in self.lines))
+
+    def test_screening_flags_are_words_not_dicts(self):
+        block = {"suggested_label": None, "status": "not_computed", "flags": [
+            {"code": "outside_routed_domain", "message": "Receptor is outside the routed domain", "receptor": "nd911-FE82"},
+            "plain flag"]}
+        line = qr._package_line("ND00199", block)
+        self.assertIn("Receptor is outside the routed domain (nd911-FE82)", line)
+        self.assertIn("plain flag", line)
+        self.assertNotIn("{", line)
+        self.assertNotIn("'code'", line)
+        # a flag the chain repeats once per scenario is listed once
+        twice = {"suggested_label": None, "flags": [block["flags"][0], dict(block["flags"][0])]}
+        self.assertEqual(qr._package_line("ND00199", twice).count("nd911-FE82"), 1)
+
+    def test_qgis_start_up_notices_are_not_logged(self):
+        self.assertTrue(qr.is_noise("Can't load library /q/plugins/libpdal_plugin.so: libgflags.so.2.2: cannot open"))
+        self.assertTrue(qr.is_noise("gdal.py:330: FutureWarning: Neither gdal.UseExceptions() nor gdal.DontUseExceptions() has been explicitly called."))
+        self.assertFalse(qr.is_noise("CLASS: High"))
+        self.assertFalse(qr.is_noise("ERROR: the depth raster could not be opened"))
 
     def test_classify_runs_with_gdal_pam_off(self):
         # GUI chain walk 2026-11-09: classify left <raster>.tif.aux.xml in a read-only run folder. The classify

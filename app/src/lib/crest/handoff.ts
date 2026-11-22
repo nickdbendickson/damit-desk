@@ -43,7 +43,8 @@ export function handoffFailureMode(mode: unknown): FailureMode {
 /** The dam as sent: failure mode resolved (piping default) and the jurisdiction choice resolved (its state's preset, else FEMA 333). */
 export function handoffDam(dam: DamRecord): DamRecord {
   // The last classify result stays in the desk; it is not part of the dam record the plugins read.
-  const { hazardResult: _last, ...rest } = dam;
+  const { hazardResult: _last, screeningResult: _screen, ...rest } = dam;
   void _last;
+  void _screen;
   return { ...rest, failureMode: handoffFailureMode(dam.failureMode), classification: handoffChoice(dam.classification, defaultPresetFor(dam)) };
 }

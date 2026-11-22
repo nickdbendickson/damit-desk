@@ -149,6 +149,12 @@ export type DamRecord = {
    * shows it as out of date instead of as the new jurisdiction's class.
    */
   hazardResult?: HazardResult;
+  /**
+   * The last QGIS screening (Export & Hand-off, "Write folder and run screening") for this dam (Absaraka desk test
+   * 2026-11-21: a PARTIAL, time-limited screening with no preliminary class showed only in the job log while the rail
+   * and status bar said every step was complete). Not part of the dam record the plugins read.
+   */
+  screeningResult?: ScreeningResult;
   geometry?: DamGeometry;
   /** PLSS sections looked up for the flood strip (BLM CadNSDI), kept so the list works offline afterwards. */
   plss?: PlssCache;
@@ -475,4 +481,17 @@ export type ResultsOfRecord = {
   stats: RunStats;
   samples: ReceptorSample[];
   warnings: string[];
+};
+
+/** How the last QGIS screening chain ended (qgis_run.run_screening): finished, PARTIAL at its time limit, or failed. */
+export type ScreeningResult = {
+  state: "done" | "partial" | "failed";
+  /** The preliminary class the screener suggested; null = not determined (no class). */
+  label: string | null;
+  /** Why it is partial or failed, in words (e.g. "time limit"). */
+  reason: string | null;
+  /** Wet area and maximum depth of the screening flood so far, when the server reported them. */
+  areaAc?: number | null;
+  maxDepthFt?: number | null;
+  at: string;
 };
