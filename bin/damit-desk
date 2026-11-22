@@ -1,6 +1,11 @@
 #!/bin/sh
 # DamIT Desk. The only window. This does not open QGIS.
 set -e
+# --profile nd opens the desk in the North Dakota profile (DWR dam values, the DWR DamSafety plugins); --profile us
+# in the United States one. Without it the desk opens in the profile last chosen in Settings.
+if [ "${1:-}" = "--profile" ] && [ -n "${2:-}" ]; then
+  DAMIT_DESK_PROFILE="$2"; export DAMIT_DESK_PROFILE; shift 2
+fi
 HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 APP=$(CDPATH= cd -- "$HERE/../app/desktop" && pwd)
 PY="${DAMIT_DESK_PYTHON:-python3}"

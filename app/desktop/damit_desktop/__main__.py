@@ -32,6 +32,7 @@ from damit_desktop import classify_receptors
 from damit_desktop import defaults
 from damit_desktop import localdem
 from damit_desktop import nid
+from damit_desktop import profile as desk_profile
 from damit_desktop import qgis_run
 from damit_desktop.qgis_run import (
     WorkFolderError,
@@ -238,8 +239,12 @@ def start_job(
     source: str = "pack",
     timeout: float | None = None,
     receptors: dict | None = None,
+    profile: str = "us",
 ) -> dict:
     """Write the dam folder, fetch layers, or call the plugins on a background thread. Returns immediately.
+
+    profile: the page's desk profile; the job runs under it (profile.profile_scope), so "nd" hands off to the DWR
+    DamSafety plugins and "us" (the default) to the DamIT plugins.
 
     cancel_job(id) stops any job that runs qgis_process or the CLI (screening, model, classify, Download layers,
     Atlas 14, Find fills) and what it started; timeout (seconds) limits the screening chain (else
@@ -253,6 +258,10 @@ def start_job(
         _evict_finished_locked()
 
     def work_job():
+        with desk_profile.profile_scope(profile):
+            _work_job()
+
+    def _work_job():
         try:
             log = lambda line: _job_log(job, line)
             if kind == "check":
@@ -429,7 +438,7 @@ class _Handler(SimpleHTTPRequestHandler):
         result = consume_launch_code(code)
         if result == "ok":
             self.send_response(303)
-            self.send_header("Location", f"/index.html#damit-token={API_TOKEN}")
+            self.send_header("Location", f"/index.html#damit-token={API_TOKEN}{profile_fragment()}")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -476,7 +485,8 @@ class _Handler(SimpleHTTPRequestHandler):
             # The algorithm ids the buttons will call (DamIT defaults or overrides), for the Report step to show.
             # Also the folder a blank Work folder field means, and a one-line notice when this run's settings came
             # over from the old DamIT Crest folder (2026-11-21: that copy was only printed in the terminal).
-            info = handoff_config().as_json()
+            with desk_profile.profile_scope((parse_qs(parsed.query).get("profile") or [""])[0]):
+                info = handoff_config().as_json()
             info["work"] = str(qgis_run.default_work_dir())
             info["notices"] = list(STORAGE_NOTICES)
             self._send(200, json.dumps(info).encode(), "application/json")
@@ -603,7 +613,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # Screen: the same payload when the desk sends one (else the record's mapped seeds), structures only.
         receptors = (payload.get("receptors") if kind in ("classify", "screen")
                      and isinstance(payload.get("receptors"), dict) else None)
-        body = json.dumps(start_job(kind, dam, analysis, work, model, files, source, timeout, receptors))
+        # The page's desk profile (Settings, or ?profile=nd): "nd" hands off to the DWR DamSafety plugins (profile.py).
+        profile = desk_profile.normalize(payload.get("profile"))
+        body = json.dumps(start_job(kind, dam, analysis, work, model, files, source, timeout, receptors, profile))
         self._send(200, body.encode(), "application/json")
 
     def _json_body(self, limit: int) -> dict | None:
@@ -1076,9 +1088,17 @@ def write_text(path: Path, text: str) -> None:
         raise
 
 
+def profile_fragment() -> str:
+    """"&profile=nd" (or "&profile=us") when DAMIT_DESK_PROFILE names a profile, else "". The suite installer's North
+    Dakota launcher sets DAMIT_DESK_PROFILE=nd, so the desk opens in that profile (the page reads profile= from the
+    address fragment, profile.ts; the token is taken out of the fragment and the rest is kept)."""
+    chosen = desk_profile.normalize(os.environ.get("DAMIT_DESK_PROFILE"))
+    return f"&profile={chosen}" if (os.environ.get("DAMIT_DESK_PROFILE") or "").strip() else ""
+
+
 def desk_url(port: int) -> str:
     """The address the desk window opens: the API token rides in the fragment, which is never sent over HTTP."""
-    return f"http://127.0.0.1:{port}/index.html#damit-token={API_TOKEN}"
+    return f"http://127.0.0.1:{port}/index.html#damit-token={API_TOKEN}{profile_fragment()}"
 
 
 def launch_url(port: int, code: str) -> str:
