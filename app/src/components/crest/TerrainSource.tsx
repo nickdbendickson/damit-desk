@@ -60,7 +60,7 @@ export function TerrainSource({ compact = false }: { compact?: boolean }) {
       ) : (
         <>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={btn} disabled={busy} onClick={() => void pick()}>
+            <button type="button" className={btn} disabled={busy} onClick={() => void pick()} data-testid="terrain-choose-dem">
               {s.kind === "local" ? "Choose another DEM file…" : "Use a local DEM file (.vrt, .tif)…"}
             </button>
             {s.kind === "local" ? (

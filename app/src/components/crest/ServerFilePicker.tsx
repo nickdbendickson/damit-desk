@@ -50,7 +50,9 @@ export function ServerFilePicker() {
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-md border border-line bg-card p-4 shadow-lg">
         <h3 className="text-lg">{req.title}</h3>
         <p className="mt-1 text-xs text-muted">
-          {req.mode === "dem"
+          {req.mode === "csv"
+            ? "Folders and CSV files the DamIT Desk server may show: the work folder, exports, the DamIT data folder and DEM folders."
+            : req.mode === "dem"
             ? "Folders and DEM files (.vrt, .tif, .tiff, .img) the DamIT Desk server may show: the work folder, exports, the DamIT data folder and DEM folders. A VRT keeps reading its tiles where they are. For a DEM elsewhere, add its folder to DAMIT_DEM_ROOTS and restart the desk."
             : "Folders inside the DamIT Desk work folder (DAMIT_WORK_ROOTS adds others)."}
         </p>
@@ -83,7 +85,7 @@ export function ServerFilePicker() {
         ) : null}
         {err ? <p className="mt-2 text-sm text-red-700">{err}</p> : null}
         <ul className="mt-2 min-h-40 flex-1 overflow-auto rounded-sm border border-line bg-paper text-sm" data-testid="server-picker-list">
-          {list?.entries.length === 0 ? <li className="px-3 py-2 text-muted">{req.mode === "dem" ? "No folders or DEM files here." : "No folders here."}</li> : null}
+          {list?.entries.length === 0 ? <li className="px-3 py-2 text-muted">{req.mode === "dem" ? "No folders or DEM files here." : req.mode === "csv" ? "No folders or CSV files here." : "No folders here."}</li> : null}
           {list?.entries.map((e) => (
             <li key={e.path}>
               <button

@@ -19,6 +19,12 @@ import { choiceText, paperStamp, reportLead } from "@/lib/crest/classify-recepto
 import { damChoice } from "@/lib/crest/jurisdiction";
 import type { Analysis, DamRecord } from "@/lib/crest/types";
 import { CREST_VERSION } from "@/lib/crest/version";
+import { useClassifyReceptors } from "./use-classify-receptors";
+import { countsLine, LAYER_WORD, needsRuling, rulingFlag } from "@/lib/crest/classify-list";
+
+/** Rows of classify's receptor list on the printed report (the strongest first). */
+const PAPER_CLASSIFY_ROWS = 40;
+
 
 type Props = {
   dam: DamRecord;
@@ -116,6 +122,11 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
   const metrics = receptorMetrics(result, lead.kind === "hazard" ? dam.hazardResult : null);
   const { rows, shown, total } = paperRows(result);
   const section = receptorSection(result, lead.kind === "hazard" ? dam.hazardResult : null);
+  // classify's own receptors with names, when its result is current and the desk server could read its GeoPackage.
+  const classifyLoad = useClassifyReceptors(dam);
+  const judged = lead.kind === "hazard" ? (classifyLoad.list?.receptors ?? []) : [];
+  const judgedCounts = classifyLoad.list ? countsLine(classifyLoad.list.counts) : "";
+  const ruling = lead.kind === "hazard" ? rulingFlag(dam.hazardResult) : null;
   const flags = paperFlagsCoded(result, runWarnings);
   const deepest = [...result.flood.receptors]
     .filter((r) => r.flooded)
@@ -134,6 +145,11 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
         </div>
         <div className={`stamp stamp--${hazardClass ? "hazard" : stampClass(result.screen.level)}`} data-testid="paper-stamp">
           {paperStamp(level, lead, hazardClass)}
+          {ruling ? (
+            <span className="stamp-ruling" data-testid="paper-stamp-ruling" title={ruling.text}>
+              {ruling.short}
+            </span>
+          ) : null}
         </div>
       </header>
       <hr className="rule" />
@@ -254,6 +270,47 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
           Front arrival: the desk's travel time to the flood front (or the imported run's arrival
           raster). Routed peak and the DEM behind each depth are not computed per structure yet.
         </p>
+        {judged.length ? (
+          <>
+            <h3 className="p-sub">Receptors damit:classify judged ({judgedCounts})</h3>
+            <div className="p-scroll">
+              <table className="recepttab" data-testid="paper-classify-receptors">
+                <thead>
+                  <tr>
+                    <th scope="col">Receptor</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Depth ft</th>
+                    <th scope="col">Vel ft/s</th>
+                    <th scope="col">Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {judged.slice(0, PAPER_CLASSIFY_ROWS).map((r) => (
+                    <tr key={r.rid}>
+                      <th scope="row">
+                        {r.name} <span className="fine">({r.rid})</span>
+                      </th>
+                      <td>{LAYER_WORD[r.layer]}</td>
+                      <td>
+                        {r.label || "wet, no hit"}
+                        {r.advisory ? " (advisory)" : ""}
+                        {needsRuling(r) ? " · needs ruling" : ""}
+                      </td>
+                      <td>{r.depthFt ?? "—"}</td>
+                      <td>{r.velFps ?? "—"}</td>
+                      <td>{r.methods || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="fine">
+              {judged.length > PAPER_CLASSIFY_ROWS ? `The ${PAPER_CLASSIFY_ROWS} strongest of ${judged.length.toLocaleString("en-US")}; ` : ""}
+              every receptor is in damit_hazard_receptors.gpkg.
+            </p>
+          </>
+        ) : null}
       </section>
 
       <section className="p-section">

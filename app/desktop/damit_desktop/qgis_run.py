@@ -1731,6 +1731,40 @@ def report_hits(res: dict, labels: dict | None = None) -> tuple[list[dict], int]
     return rows[:MAX_HITS], len(rows)
 
 
+#: Flag codes whose receptors carry a value that still needs the engineer's ruling (e.g. the BNSF KO 15 trains/day
+#: from RAIL_TRAINS_LOOKUP); a flag message saying "needs ... ruling" counts too.
+UNRULED_CODES = ("trains_lookup",)
+
+
+def unruled_top(res: dict, labels: dict | None = None) -> dict | None:
+    """How many of the hits at the top class rest only on receptors with an unruled value (Absaraka 2026-11-21: High
+    came from 2 roads by rule and 4 BNSF lines at a looked-up 15 trains/day that "needs Nick's ruling").
+    {"label", "hits", "unruled", "why"} or None when the top class does not rest on any unruled value."""
+    labels = labels or {}
+    unruled: set[str] = set()
+    why: list[str] = []
+    for f in res.get("flags") or []:
+        if not isinstance(f, dict):
+            continue
+        msg = str(f.get("message") or "")
+        if f.get("code") in UNRULED_CODES or re.search(r"needs\b.{0,40}\bruling", msg, re.I):
+            recs = {str(r) for r in f.get("receptors") or [] if isinstance(r, (str, int))}
+            if recs:
+                unruled |= recs
+                why.append(msg[:240])
+    hits = [h for h in res.get("hits") or [] if isinstance(h, dict) and isinstance(h.get("class"), int)
+            and not isinstance(h.get("class"), bool)]
+    if not unruled or not hits:
+        return None
+    top = max(h["class"] for h in hits)
+    top_hits = [h for h in hits if h["class"] == top]
+    resting = [h for h in top_hits if (recs := {str(r) for r in h.get("receptors") or []}) and recs <= unruled]
+    if not resting:
+        return None
+    return {"label": str(labels.get(str(top), labels.get(top, top))), "hits": len(top_hits), "unruled": len(resting),
+            "why": why[:3]}
+
+
 def read_hazard_report(out_dir: Path) -> dict | None:
     """The parts of damit:classify's damit_hazard_report.json the desk shows: which preset/mode it ran, the
     generic label, the hits that set the class and how many warnings it flagged. None when there is no report."""
@@ -1768,6 +1802,7 @@ def read_hazard_report(out_dir: Path) -> dict | None:
     wet = tally.get("wet_structures")
     hits, hits_total = report_hits(res, labels)
     return {
+        "ruling": unruled_top(res, labels),
         "hits": hits,
         "hitsTotal": hits_total,
         "impacted": impacted,

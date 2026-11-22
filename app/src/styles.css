@@ -526,7 +526,7 @@ tr.hl-low td:first-child, tr.hl-low th:first-child { border-left: 4px solid var(
 .dash-root .legend-row { display: flex; align-items: center; gap: 6px; font-size: 11px; margin: 2px 0; }
 .dash-root .legend-row span { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
 .dash-root .dash-bottom { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; padding: 12px; background: var(--bg); }
-.dash-root .dash-impacts { grid-column: 1 / -1; }
+.dash-root .dash-impacts, .dash-root .classify-receptors { grid-column: 1 / -1; }
 @media (min-width: 1500px) { .dash-root .dash-bottom { grid-template-columns: 1.2fr 0.8fr 2fr; } .dash-root .dash-impacts { grid-column: auto; } }
 .dash-root .pane { background: var(--panel); border-radius: 7px; padding: 10px; box-shadow: var(--shadow); min-width: 0; }
 .dash-root .pane h4 { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
@@ -648,3 +648,30 @@ body.field-mode .text-amber-700 { color: var(--flag-amber); }
 @media (prefers-reduced-motion: reduce) {
   .fix-flash { transition: none; }
 }
+
+/*
+ * Sticky first column (Absaraka desk test 2026-11-21): in a table wider than its box, the name column stays put while
+ * the figures scroll sideways. The cell keeps its row's highlight; the header cell keeps the header's.
+ */
+.sticky-first > thead > tr > :first-child,
+.sticky-first > tbody > tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); box-shadow: inset -1px 0 0 var(--border); }
+.sticky-first > thead > tr > :first-child { z-index: 2; background: inherit; }
+.sticky-first > thead { background: var(--sand); }
+.dash-root .sticky-first > thead, .sticky-first.dash-table > thead { background: var(--panel); }
+.sticky-first > tbody > tr.hl-high > :first-child { background: var(--hl-high-bg); }
+.sticky-first > tbody > tr.hl-sig > :first-child { background: var(--hl-sig-bg); }
+.sticky-first > tbody > tr.hl-low > :first-child { background: var(--hl-low-bg); }
+.sticky-first > tbody > tr.is-focused > *, .sticky-first > tbody > tr.is-focused > :first-child { background: var(--hl-sig-bg); }
+
+/* Collapsible legends: the map legends fold to their title (the choice is kept per browser). */
+.legend-toggle { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-weight: 600; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.legend-toggle::after { content: "▾"; font-size: 10px; }
+.legend-toggle[aria-expanded="false"]::after { content: "▸"; }
+
+/* Classify receptor chips */
+.classify-chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--ink); background: var(--panel); }
+.classify-chip[aria-pressed="true"] { border-color: var(--ink); font-weight: 700; }
+.classify-chip:disabled { opacity: 0.5; }
+
+.stamp .stamp-ruling { display: block; margin-top: 2px; font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; }
+.paper .p-sub { font-size: 12px; font-weight: 700; margin: 10px 0 4px; }

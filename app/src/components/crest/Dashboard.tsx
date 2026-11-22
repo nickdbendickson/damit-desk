@@ -33,6 +33,10 @@ import { receptorPoints, SOURCE_LABEL } from "@/lib/crest/results";
 import { runKey, useResults } from "@/lib/crest/results-store";
 import type { Analysis, DamRecord, ResultSource } from "@/lib/crest/types";
 import type { DashPoint } from "./DashboardMap";
+import { ClassifyReceptorsPanel } from "./ClassifyReceptors";
+import { useClassifyReceptors } from "./use-classify-receptors";
+import { classColor } from "@/lib/crest/classify-list";
+import { useLegendOpen } from "@/lib/crest/legend-open";
 import type { Overlay } from "./ResultsMap";
 import { useAnalysisOfRecord, useStripOfRecord } from "./results-flow";
 import { layerOfRecord, RUNNER_SOURCE } from "@/lib/crest/layer-of-record";
@@ -126,6 +130,23 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
     [placed],
   );
 
+  // The real receptors damit:classify judged, as small dots by class (the table below lists them with names).
+  const judged = useClassifyReceptors(dam);
+  const classifyPoints = useMemo<DashPoint[]>(
+    () =>
+      (judged.list?.receptors ?? [])
+        .filter((r) => r.at)
+        .map((r) => ({
+          id: r.rid,
+          name: r.name,
+          lon: r.at![0],
+          lat: r.at![1],
+          color: classColor(r.ordinal),
+          label: `${r.name}: ${r.label || "wet, no hit"}${r.depthFt != null ? ` · ${r.depthFt} ft` : ""} (damit:classify)`,
+        })),
+    [judged.list],
+  );
+
   // Compare with a Runner run: the imported LISFLOOD-FP (else DSS-WISE) max depth, when loaded in this session.
   const runs = useResults((s) => s.runs);
   const preferred: ResultSource[] = dam.resultsOfRecord
@@ -196,6 +217,7 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
               <DashboardMap
                 depth={layers.depth ? depth : null}
                 points={layers.structures ? points : []}
+                classify={layers.classify ? classifyPoints : []}
                 arrival={layers.arrival ? arrival : []}
                 hillshade={layers.hillshade}
                 overlays={layers.runnerOverlay ? overlay.overlays : []}
@@ -217,6 +239,7 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
         <HydrographPane series={result.breach.series} />
         <KpiStack dam={dam} result={result} />
         <ImpactsTable receptors={searchReceptors(result.flood.receptors, q)} gated={gated} />
+        <ClassifyReceptorsPanel dam={dam} result={deskResult} where="dashboard" />
       </div>
 
       <StatusBar source={source} modeled={ref != null} flags={flags} critical={critical} acked={acked} onAck={() => setAcked(true)} />
@@ -238,6 +261,7 @@ function LayerRail({
   overlayError?: string;
   method: string;
 }) {
+  const [legendOpen, toggleLegend] = useLegendOpen("dashboard-depth");
   return (
     <aside className="dash-layers" aria-label="Layers">
       <h5>LAYERS</h5>
@@ -273,13 +297,19 @@ function LayerRail({
       ) : null}
       {layers.depth ? (
         <>
-          <h5>MAX DEPTH (FT)</h5>
-          {[...DEPTH_BANDS].reverse().map((b) => (
-            <p key={b.id} className="legend-row">
-              <span style={{ background: b.color }} /> {b.label}
-            </p>
-          ))}
-          <p className="mini">
+          <h5>
+            <button type="button" className="legend-toggle" aria-expanded={legendOpen} onClick={toggleLegend} data-testid="dash-legend-collapse">
+              MAX DEPTH (FT)
+            </button>
+          </h5>
+          {legendOpen
+            ? [...DEPTH_BANDS].reverse().map((b) => (
+                <p key={b.id} className="legend-row">
+                  <span style={{ background: b.color }} /> {b.label}
+                </p>
+              ))
+            : null}
+          <p className="mini" hidden={!legendOpen}>
             {method === "runner" || method === "model"
               ? "Imported model run of record (max depth, cells merged to 60 m) where its rasters are loaded; otherwise the terrain layer for comparison."
               : method === "strip-legacy"
@@ -433,7 +463,7 @@ function ImpactsTable({ receptors, gated }: { receptors: Receptor[]; gated: bool
     <div className="pane dash-impacts" data-testid="dash-impacts">
       <h4>Structure impacts: desk receptors (911 / mapped)</h4>
       <div className="overflow-x-auto">
-        <table className="dash-table">
+        <table className="dash-table sticky-first">
           <thead>
             <tr>
               {COLS.map((c) => (

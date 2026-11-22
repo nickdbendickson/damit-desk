@@ -4,6 +4,7 @@
  * criteria hits the run scored, from the result's structured fields (lib/crest/review-summary.ts).
  */
 import { useMemo, useState } from "react";
+import { rulingFlag } from "@/lib/crest/classify-list";
 import { hazardStatus } from "@/lib/crest/classify-receptors";
 import {
   classBadge,
@@ -44,6 +45,7 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
   const tiles = useMemo(() => summaryTiles(dam, result), [dam, result]);
   const st = useMemo(() => hazardStatus(dam, result), [dam, result]);
   const hits = useMemo(() => hitRows(st.state === "none" ? null : st.result), [st]);
+  const ruling = useMemo(() => rulingFlag(st.state === "none" ? null : st.result), [st]);
   const [sort, setSort] = useState<{ key: HitSortKey; desc: boolean }>({ key: "class", desc: true });
   const [all, setAll] = useState(false);
   const rows = useMemo(() => sortHits(hits.rows, sort.key, sort.desc), [hits.rows, sort]);
@@ -68,9 +70,24 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
             <span className="sr-only">Suggested hazard class: </span>
             {badge.text}
           </span>
+          {ruling && st.state !== "none" ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-sm border border-amber bg-sand px-2 py-0.5 text-xs font-semibold text-amber"
+              title={ruling.text}
+              data-testid="class-badge-ruling"
+            >
+              <span aria-hidden="true">⚑</span> {ruling.short}
+              <span className="sr-only">: {ruling.text}</span>
+            </span>
+          ) : null}
           <p className="text-xs text-muted" data-testid="class-badge-note">
             {badge.note}
           </p>
+          {ruling && st.state !== "none" ? (
+            <p className="text-xs text-amber" data-testid="class-badge-ruling-text">
+              {ruling.text}
+            </p>
+          ) : null}
         </div>
       </div>
       <p className="mt-2 text-xs text-muted" data-testid="class-disclaimer">
@@ -105,7 +122,7 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
               {st.state === "stale" ? " From the out-of-date result." : ""} Choose a column heading to sort.
             </p>
             <div className="mt-2 max-h-[28rem] overflow-auto rounded-sm border border-line" tabIndex={0} role="region" aria-labelledby={`${tid}-hits`}>
-              <table className="w-full border-collapse text-left text-sm" data-testid="hits-table">
+              <table className="sticky-first w-full border-collapse text-left text-sm" data-testid="hits-table">
                 <thead className="sticky top-0 bg-sand">
                   <tr>
                     {COLS.map((c) => {

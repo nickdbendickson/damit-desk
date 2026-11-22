@@ -251,6 +251,11 @@ export type HazardResult = {
   layerSources?: Record<string, string>;
   /** The rail trains-per-day lookup sent with the run (a file on this computer), when one was given. */
   railTrainsLookup?: string | null;
+  /**
+   * The top class's hits that rest only on values still needing the engineer's ruling (qgis_run.unruled_top: e.g. the
+   * BNSF KO 15 trains/day from the rail lookup); absent when none do. The class badge shows "needs ruling".
+   */
+  ruling?: { label: string; hits: number; unruled: number; why: string[] } | null;
   classifiedAt: string;
   /** choiceKey / receptorKey (classify-receptors.ts) and the choice in words, at the time of the run. */
   choiceKey: string;

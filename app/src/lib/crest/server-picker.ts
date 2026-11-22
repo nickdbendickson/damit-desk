@@ -6,7 +6,7 @@
  */
 import { crestApiHeaders, desktopToken } from "./desktop-server.ts";
 
-export type PickMode = "dem" | "folder";
+export type PickMode = "dem" | "folder" | "csv";
 export type PickRequest = { mode: PickMode; title: string; start?: string | null };
 type Opener = (req: PickRequest) => Promise<string | null>;
 
