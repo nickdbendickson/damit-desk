@@ -34,9 +34,19 @@ server downloads that state's NID bulk CSV once (`GET /api/nid/state?state=XX`, 
 converts it and caches it in the settings folder (`<settings>/nid/nid_XX.json`; *Download latest from the NID*
 refreshes it). One bulk CSV per state, no per-dam API calls, and the NID's owner columns are never read. North Dakota
 (`src/lib/crest/data/nid_ND.json`, 948 main dams) is committed as the offline example, so the desk works without a
-network for ND; no national bundle is committed. No state dam-safety inventory (the ND DWR dams file), no dugout or
-unknown-structure layer and no state suite pack (`NDSUITE_DATA`, `~/.ndsuite`) is read or shipped. Receptors (ND 911
+network for ND; no national bundle is committed. Outside the North Dakota profile no state dam-safety inventory, no
+dugout or unknown-structure layer and no state suite pack (`NDSUITE_DATA`, `~/.ndsuite`) is read or shipped. Receptors (ND 911
 address points for ND dams, or the user's own), DEMs (3DEP or a local DEM) and NHD streams are separate inputs.
+
+**Profiles: United States (default) and North Dakota** (0.1.4; Nick, 2026-11-22: damit-desk is the one desk codebase,
+and the ND DWR desk `dwr_crest` retires into it). *Settings > Dam inventory profile*, or open the desk at `?profile=nd`.
+The North Dakota profile changes only what the Record step fills a record from: its picker
+(`src/lib/crest/nd-dams.ts`, `NdDamPicker.tsx`) adds the ND Department of Water Resources' dam values joined on NID ID
+(`src/lib/crest/data/nd_dams_dwr.json`, rebuilt by `npm run data:nd-dams-dwr`): height from DWR, NAVD 88 elevations
+offered only after you confirm, DWR areas, DWR dugouts shown for reference, and DWR-only dams. The engine, the
+jurisdiction presets (an ND record starts on the North Dakota preset in either profile) and saved records are the same
+in both. Still to come in the ND profile: the DWR structures list on the Batch screen, and the hand-off to the DWR
+suite plugins (`ndbreach:*`) instead of DamIT's.
 
 **A batch of any size can be left running in the desk.** Rows are written to browser storage (IndexedDB) as they
 finish, and again when the window is hidden or closed. The state and the selection being run are saved too, so after

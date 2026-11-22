@@ -79,6 +79,8 @@ import { damChoice, screenAgainstChoice } from "@/lib/crest/jurisdiction";
 import { HydroChart, ValleyMap } from "./charts";
 import { useOnline } from "./use-online";
 import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel, useNidData } from "./NidDamPicker";
+import { NdDamPicker } from "./NdDamPicker";
+import { useProfile } from "@/lib/crest/profile";
 import { ResultsStep } from "./ResultsStep";
 import { useAnalysisOfRecord, useResultsSync, useStripOfRecord } from "./results-flow";
 import { PaperReport } from "./PaperReport";
@@ -692,13 +694,12 @@ function LocationPanel({ dam }: { dam: DamRecord }) {
 
 function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const update = useDesk((s) => s.update);
+  const profile = useProfile((s) => s.profile);
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="rounded-md border border-line bg-card p-4">
         <h2 className="text-xl">Dam record</h2>
-        <div className="mt-3">
-          <NidDamPicker dam={dam} />
-        </div>
+        <div className="mt-3">{profile === "nd" ? <NdDamPicker dam={dam} /> : <NidDamPicker dam={dam} />}</div>
         <NidHazardLine dam={dam} />
         <p className="mt-2 text-sm text-muted">{result.datum.rule}</p>
         <DemTiePanel dam={dam} />
