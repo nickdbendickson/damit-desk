@@ -40,13 +40,15 @@ address points for ND dams, or the user's own), DEMs (3DEP or a local DEM) and N
 
 **Profiles: United States (default) and North Dakota** (0.1.4; Nick, 2026-11-22: damit-desk is the one desk codebase,
 and the ND DWR desk `dwr_crest` retires into it). *Settings > Dam inventory profile*, or open the desk at `?profile=nd`.
-The North Dakota profile changes only what the Record step fills a record from: its picker
+The North Dakota profile changes only which dams and structures a record can be filled from: its Record-step picker
 (`src/lib/crest/nd-dams.ts`, `NdDamPicker.tsx`) adds the ND Department of Water Resources' dam values joined on NID ID
 (`src/lib/crest/data/nd_dams_dwr.json`, rebuilt by `npm run data:nd-dams-dwr`): height from DWR, NAVD 88 elevations
 offered only after you confirm, DWR areas, DWR dugouts shown for reference, and DWR-only dams. The engine, the
 jurisdiction presets (an ND record starts on the North Dakota preset in either profile) and saved records are the same
-in both. Still to come in the ND profile: the DWR structures list on the Batch screen, and the hand-off to the DWR
-suite plugins (`ndbreach:*`) instead of DamIT's.
+in both. In the ND profile the Batch screen, and the structure picker under the dam picker, list every NID dam plus
+every other DWR dam, DWR dugout and DWR Unknown Structure (`src/lib/crest/nd-structures.ts`,
+`src/lib/crest/data/nd_structures.json`, with HUC8 watersheds); a batch record takes DWR's NAVD 88 crest where DWR
+gives one, else the terrain. Still to come: the hand-off to the DWR suite plugins (`ndbreach:*`) instead of DamIT's.
 
 **A batch of any size can be left running in the desk.** Rows are written to browser storage (IndexedDB) as they
 finish, and again when the window is hidden or closed. The state and the selection being run are saved too, so after

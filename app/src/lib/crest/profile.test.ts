@@ -25,14 +25,18 @@ describe("desk profile", () => {
 });
 
 describe("the North Dakota profile's DWR values stay in the ND picker", () => {
-  it("only nd-dams.ts asks for the nd_dams_dwr bundle, and the Record step shows NdDamPicker only for profile nd", async () => {
+  it("only nd-dams.ts / nd-structures.ts ask for the DWR bundles; the Record step shows the ND pickers only for profile nd", async () => {
     const { readFileSync, readdirSync } = await import("node:fs");
     const here = new URL("./", import.meta.url);
     const users = readdirSync(here)
       .filter((f: string) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts"))
       .filter((f: string) => /loadBundle<[^>]*>\("nd_dams_dwr"\)/.test(readFileSync(new URL(f, here), "utf8")));
     assert.deepEqual(users, ["nd-dams.ts"]);
+    const structureUsers = readdirSync(here)
+      .filter((f: string) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts"))
+      .filter((f: string) => /loadBundle<[^>]*>\("nd_structures"\)/.test(readFileSync(new URL(f, here), "utf8")));
+    assert.deepEqual(structureUsers, ["nd-structures.ts"]);
     const desk = readFileSync(new URL("../../components/crest/desk.tsx", import.meta.url), "utf8");
-    assert.match(desk, /profile === "nd" \? <NdDamPicker dam=\{dam\} \/> : <NidDamPicker dam=\{dam\} \/>/);
+    assert.match(desk, /profile === "nd" \? \(\s*<>\s*<NdDamPicker dam=\{dam\} \/>\s*<StructurePicker \/>\s*<\/>\s*\) : \(\s*<NidDamPicker dam=\{dam\} \/>/);
   });
 });

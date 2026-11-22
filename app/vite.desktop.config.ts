@@ -124,7 +124,7 @@ function desktopSecurityPlugin(mode: string): Plugin {
  * otherwise import is replaced by an empty stub so it is not inlined as well. data-bundle.ts inflates it on first use
  * with DecompressionStream, or fflate's gunzip (already a dependency) where a browser lacks it.
  */
-const PACKED_BUNDLES = { nid_example: "nid_ND", nd_dams_dwr: "nd_dams_dwr" } as const;
+const PACKED_BUNDLES = { nid_example: "nid_ND", nd_dams_dwr: "nd_dams_dwr", nd_structures: "nd_structures" } as const;
 const OMITTED_JSON = "\0damit:json-omitted";
 function packedDataPlugin(): Plugin {
   const stub = r("./src/lib/crest/data/packed.ts");

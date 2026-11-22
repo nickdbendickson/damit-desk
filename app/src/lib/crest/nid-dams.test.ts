@@ -52,11 +52,11 @@ describe("the NID example extract (ND)", () => {
     assert.ok(!("dwr" in data) && !("dugouts" in data), "no state dam-safety or dugout inventory");
   });
 
-  it("size budget: <= 250 KB raw / 70 KB gzipped; no structures bundle ships (the DWR values are the ND profile's)", () => {
+  it("size budget: <= 250 KB raw / 70 KB gzipped (the DWR bundles are the ND profile's, nd-dams / nd-structures)", () => {
     const nid = readFileSync(new URL("./data/nid_ND.json", import.meta.url));
     assert.ok(nid.length <= 250_000, `${nid.length}`);
     assert.ok(gzipSync(nid, { level: 9 }).length <= 70_000);
-    for (const gone of ["nd_structures.json", "nd_dams.json"])
+    for (const gone of ["nd_dams.json"])
       assert.throws(() => readFileSync(new URL(`./data/${gone}`, import.meta.url)), gone);
   });
 
