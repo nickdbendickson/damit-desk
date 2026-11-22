@@ -48,7 +48,9 @@ jurisdiction presets (an ND record starts on the North Dakota preset in either p
 in both. In the ND profile the Batch screen, and the structure picker under the dam picker, list every NID dam plus
 every other DWR dam, DWR dugout and DWR Unknown Structure (`src/lib/crest/nd-structures.ts`,
 `src/lib/crest/data/nd_structures.json`, with HUC8 watersheds); a batch record takes DWR's NAVD 88 crest where DWR
-gives one, else the terrain. Still to come: the hand-off to the DWR suite plugins (`ndbreach:*`) instead of DamIT's.
+gives one, else the terrain. The Report step's buttons hand off to the DWR DamSafety plugins (`nddam:*`,
+`ndbreach:*`, `ndhazard:classify`) through the DWR install's QGIS profile instead of DamIT's (docs/HANDOFF.md, *North
+Dakota profile*).
 
 **A batch of any size can be left running in the desk.** Rows are written to browser storage (IndexedDB) as they
 finish, and again when the window is hidden or closed. The state and the selection being run are saved too, so after

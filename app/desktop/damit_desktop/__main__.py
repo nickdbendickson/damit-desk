@@ -31,6 +31,7 @@ from damit_desktop import browser_io
 from damit_desktop import defaults
 from damit_desktop import localdem
 from damit_desktop import nid
+from damit_desktop import profile as desk_profile
 from damit_desktop import qgis_run
 from damit_desktop.qgis_run import (
     WorkFolderError,
@@ -208,8 +209,12 @@ def start_job(
     source: str = "pack",
     timeout: float | None = None,
     receptors: dict | None = None,
+    profile: str = "us",
 ) -> dict:
     """Write the dam folder, fetch layers, or call the plugins on a background thread. Returns immediately.
+
+    profile: the page's desk profile; the job runs under it (profile.profile_scope), so "nd" hands off to the DWR
+    DamSafety plugins and "us" (the default) to the DamIT plugins.
 
     cancel_job(id) stops any job that runs qgis_process or the CLI (screening, model, classify, Download layers,
     Atlas 14, Find fills) and what it started; timeout (seconds) limits the screening chain (else
@@ -223,6 +228,10 @@ def start_job(
         _evict_finished_locked()
 
     def work_job():
+        with desk_profile.profile_scope(profile):
+            _work_job()
+
+    def _work_job():
         try:
             log = lambda line: _job_log(job, line)
             if kind == "check":
@@ -446,7 +455,8 @@ class _Handler(SimpleHTTPRequestHandler):
             # The algorithm ids the buttons will call (DamIT defaults or overrides), for the Report step to show.
             # Also the folder a blank Work folder field means, and a one-line notice when this run's settings came
             # over from the old DamIT Crest folder (2026-11-21: that copy was only printed in the terminal).
-            info = handoff_config().as_json()
+            with desk_profile.profile_scope((parse_qs(parsed.query).get("profile") or [""])[0]):
+                info = handoff_config().as_json()
             info["work"] = str(qgis_run.default_work_dir())
             info["notices"] = list(STORAGE_NOTICES)
             self._send(200, json.dumps(info).encode(), "application/json")
@@ -562,7 +572,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # Screen: the same payload when the desk sends one (else the record's mapped seeds), structures only.
         receptors = (payload.get("receptors") if kind in ("classify", "screen")
                      and isinstance(payload.get("receptors"), dict) else None)
-        body = json.dumps(start_job(kind, dam, analysis, work, model, files, source, timeout, receptors))
+        # The page's desk profile (Settings, or ?profile=nd): "nd" hands off to the DWR DamSafety plugins (profile.py).
+        profile = desk_profile.normalize(payload.get("profile"))
+        body = json.dumps(start_job(kind, dam, analysis, work, model, files, source, timeout, receptors, profile))
         self._send(200, body.encode(), "application/json")
 
     def _json_body(self, limit: int) -> dict | None:
