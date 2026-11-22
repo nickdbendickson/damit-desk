@@ -15,6 +15,13 @@ Resolution order for every role (first hit wins):
 
 There is deliberately no fallback to the North Dakota suite's ids (``nddam:*``, ``ndbreach:*``) or to
 ``ndbreach_cli.py``: a legacy id given as an override is refused with a message, never started.
+
+The North Dakota profile (profile.py; Nick, 2026-11-22: damit-desk is the one desk, and the ND DWR desk dwr_crest
+retires into it) hands off to the DWR DamSafety suite instead, as dwr_crest did: ``nddam:preflight`` /
+``nddam:runchain`` (DamSafety Screening), ``ndbreach:rundam`` (DamSafety Runner, CLI ``ndbreach_cli.py``),
+``ndhazard:classify`` (DamSafety Hazard), ``ndpmp:atlas14_point`` (DamSafety PMP) and ``ndfind:embankments``
+(DamSafety Finder). Its overrides are ``DAMIT_ND_ALG_<ROLE>`` / ``DAMIT_ND_CLI`` and the ``"nd"`` section of
+damit-handoff.json; there a DamIT id is refused instead, since the two suites live in separate QGIS profiles.
 """
 
 from __future__ import annotations
@@ -50,6 +57,37 @@ ROLE_INFO: dict[str, dict[str, str]] = {
 }
 
 ENV_VARS: dict[str, str] = {role: f"DAMIT_ALG_{role.upper()}" for role in DEFAULT_ALGORITHMS}
+
+#: The North Dakota profile's defaults: the DWR DamSafety suite's published ids. DamSafety Data publishes no download
+#: algorithm (its layers come from the ND offline pack), so ``data`` is empty there and its button says so.
+ND_ALGORITHMS: dict[str, str] = {
+    "classify": "ndhazard:classify",
+    "preflight": "nddam:preflight",
+    "runchain": "nddam:runchain",
+    "rundam": "ndbreach:rundam",
+    "batch": "ndbreach:batch",
+    "data": "",
+    "pmp": "ndpmp:atlas14_point",
+    "finder": "ndfind:embankments",
+}
+ND_ROLE_INFO: dict[str, dict[str, str]] = {
+    "classify": {"plugin": "DamSafety_Hazard", "status": "published", "analog": "damit:classify"},
+    "preflight": {"plugin": "DamSafety_Screening", "status": "published", "analog": "damit_screen:preflight"},
+    "runchain": {"plugin": "DamSafety_Screening", "status": "published", "analog": "damit_screen:runchain"},
+    "rundam": {"plugin": "DamSafety_Runner", "status": "published", "analog": "damit_run:rundam"},
+    "batch": {"plugin": "DamSafety_Runner", "status": "published", "analog": "(never started by the app)"},
+    "data": {"plugin": "DamSafety_Data", "status": "not published", "analog": "damit_data:download (ND: the offline pack)"},
+    "pmp": {"plugin": "DamSafety_PMP", "status": "published", "analog": "damit_pmp:pointpf"},
+    "finder": {"plugin": "DamSafety_Finder", "status": "published", "analog": "damit_find:embankments"},
+}
+ND_ENV_VARS: dict[str, str] = {role: f"DAMIT_ND_ALG_{role.upper()}" for role in ND_ALGORITHMS}
+ND_CLI_ENV = "DAMIT_ND_CLI"
+ND_CLI_NAMES: tuple[str, ...] = ("ndbreach_cli.py",)
+ND_CLI_PLUGIN_GLOBS: tuple[str, ...] = ("DamSafety_Runner", "*")
+
+
+def defaults_for(profile: str) -> dict[str, str]:
+    return ND_ALGORITHMS if profile == "nd" else DEFAULT_ALGORITHMS
 CLI_ENV = "DAMIT_CLI"
 CONFIG_ENV = "DAMIT_HANDOFF_CONFIG"
 CONFIG_NAME = "damit-handoff.json"
@@ -75,15 +113,26 @@ class HandoffConfig:
     cli: str | None = None
     cli_names: tuple[str, ...] = DEFAULT_CLI_NAMES
     problems: list[str] = field(default_factory=list)
+    #: "us" (the DamIT plugins) or "nd" (the DWR DamSafety suite).
+    profile: str = "us"
+    cli_globs: tuple[str, ...] = CLI_PLUGIN_GLOBS
 
     def alg(self, role: str) -> str:
         return self.algorithms[role]
 
+    @property
+    def suite(self) -> str:
+        """The plugin set, for messages."""
+        return "DWR DamSafety plugins" if self.profile == "nd" else "DamIT plugins"
+
     def as_json(self) -> dict:
+        nd = self.profile == "nd"
+        info, defaults, env = (ND_ROLE_INFO, ND_ALGORITHMS, ND_ENV_VARS) if nd else (ROLE_INFO, DEFAULT_ALGORITHMS, ENV_VARS)
         return {
+            "profile": self.profile,
             "algorithms": dict(self.algorithms),
             "sources": dict(self.sources),
-            "roles": {role: {**ROLE_INFO[role], "default": DEFAULT_ALGORITHMS[role], "env": ENV_VARS[role]} for role in DEFAULT_ALGORITHMS},
+            "roles": {role: {**info[role], "default": defaults[role], "env": env[role]} for role in defaults},
             "cli": self.cli,
             "cliNames": list(self.cli_names),
             "problems": list(self.problems),
@@ -95,12 +144,23 @@ def is_legacy(alg_id: str) -> bool:
     return provider in LEGACY_PROVIDERS or provider.startswith("nd_")
 
 
-def check_alg_id(role: str, value) -> str:
-    """The id, stripped, or HandoffConfigError. Refuses legacy ND ids and a batch id for the one-dam role."""
+def is_damit(alg_id: str) -> bool:
+    return alg_id.split(":", 1)[0].lower().startswith("damit")
+
+
+def check_alg_id(role: str, value, profile: str = "us") -> str:
+    """The id, stripped, or HandoffConfigError. Refuses the other suite's ids (ND ids in the US profile, DamIT ids in
+    the ND profile) and a batch id for a one-dam role."""
     if not isinstance(value, str) or not _ALG_ID.match(value.strip()):
         raise HandoffConfigError(f"{role}: {value!r} is not a qgis_process algorithm id (provider:name)")
     alg_id = value.strip()
-    if is_legacy(alg_id):
+    if profile == "nd":
+        if is_damit(alg_id):
+            raise HandoffConfigError(
+                f"{role}: {alg_id} is a DamIT id. The North Dakota profile hands off to the DWR DamSafety plugins "
+                f"(default {ND_ALGORITHMS[role] or 'none'}); the DamIT plugins live in another QGIS profile."
+            )
+    elif is_legacy(alg_id):
         raise HandoffConfigError(
             f"{role}: {alg_id} is a North Dakota suite id. DamIT Desk hands off to the DamIT plugins only; "
             f"use the DamIT id (default {DEFAULT_ALGORITHMS[role]})."
@@ -133,11 +193,17 @@ def _read_file(path: Path | None, problems: list[str]) -> dict:
     return data
 
 
-def load_config(settings_dir: Path | None = None) -> HandoffConfig:
-    """Resolve every role. A bad override is reported in ``problems`` and the DamIT default is kept."""
+def load_config(settings_dir: Path | None = None, profile: str | None = None) -> HandoffConfig:
+    """Resolve every role for the profile (default: the job's, profile.current()). A bad override is reported in
+    ``problems`` and the default is kept."""
+    from damit_desktop import profile as desk_profile
+
+    chosen_profile = desk_profile.normalize(profile if profile is not None else desk_profile.current())
     problems: list[str] = []
     path = config_path(settings_dir)
     data = _read_file(path, problems)
+    if chosen_profile == "nd":
+        return _load_nd(data, path, problems)
     file_algs = data.get("algorithms") if isinstance(data.get("algorithms"), dict) else {}
     algorithms: dict[str, str] = {}
     sources: dict[str, str] = {}
@@ -162,6 +228,31 @@ def load_config(settings_dir: Path | None = None) -> HandoffConfig:
     return HandoffConfig(algorithms=algorithms, sources=sources, cli=cli, cli_names=cli_names, problems=problems)
 
 
+def _load_nd(data: dict, path: Path | None, problems: list[str]) -> HandoffConfig:
+    """The North Dakota profile: DAMIT_ND_ALG_<ROLE>, else damit-handoff.json's "nd" section, else ND_ALGORITHMS."""
+    section = data.get("nd") if isinstance(data.get("nd"), dict) else {}
+    file_algs = section.get("algorithms") if isinstance(section.get("algorithms"), dict) else {}
+    where_file = f"{path} (nd)"
+    algorithms: dict[str, str] = {}
+    sources: dict[str, str] = {}
+    for role, default in ND_ALGORITHMS.items():
+        chosen, source = default, "default"
+        for value, where in ((os.environ.get(ND_ENV_VARS[role]), ND_ENV_VARS[role]), (file_algs.get(role), where_file)):
+            if value in (None, ""):
+                continue
+            try:
+                chosen, source = check_alg_id(role, value, "nd"), where
+                break
+            except HandoffConfigError as exc:
+                problems.append(f"{exc} (from {where}); kept {default or 'none'}")
+        algorithms[role], sources[role] = chosen, source
+    cli = (os.environ.get(ND_CLI_ENV) or "").strip() or (str(section.get("cli") or "").strip() or None)
+    names = section.get("cliNames")
+    cli_names = tuple(str(n) for n in names if isinstance(n, str) and n.endswith(".py")) if isinstance(names, list) else ()
+    return HandoffConfig(algorithms=algorithms, sources=sources, cli=cli, cli_names=cli_names or ND_CLI_NAMES,
+                         problems=problems, profile="nd", cli_globs=ND_CLI_PLUGIN_GLOBS)
+
+
 def qgis_profile_roots(home: Path | None = None) -> list[Path]:
     """QGIS profile folders on macOS, Linux and Windows (QGIS 3 and 4 keep the QGIS3 folder name)."""
     home = home or Path.home()
@@ -176,13 +267,14 @@ def qgis_profile_roots(home: Path | None = None) -> list[Path]:
 
 
 def find_damit_cli(config: HandoffConfig, home: Path | None = None) -> str | None:
-    """The DamIT one-dam runner CLI: DAMIT_CLI / the config's ``cli``, else a search of DamIT plugin folders."""
+    """The one-dam runner CLI: DAMIT_CLI / DAMIT_ND_CLI / the config's ``cli``, else a search of the profile's plugin
+    folders (DamIT's damit_cli.py, or the DWR Runner's ndbreach_cli.py in the ND profile)."""
     if config.cli:
         return config.cli if Path(config.cli).is_file() else None
     for root in qgis_profile_roots(home):
         if not root.is_dir():
             continue
-        for plugin_glob in CLI_PLUGIN_GLOBS:
+        for plugin_glob in config.cli_globs:
             for name in config.cli_names:
                 for pattern in (f"*/python/plugins/{plugin_glob}/scripts/{name}", f"*/python/plugins/{plugin_glob}/{name}"):
                     found = sorted(root.glob(pattern))

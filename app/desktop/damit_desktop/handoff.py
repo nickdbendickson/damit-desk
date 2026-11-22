@@ -68,8 +68,21 @@ def handoff_ids(dam: dict | None) -> dict:
             break
     is_new = dam.get("isNew") is True
     is_sample = str(dam.get("nid") or "").strip().upper() in DESK_SAMPLE_IDS
-    dam_id = nid or str(dam.get("id") or "").strip() or "dam"
+    dwr = "" if nid else nd_structure_id(dam)
+    dam_id = nid or dwr or str(dam.get("id") or "").strip() or "dam"
     return {"dam_id": dam_id, "nid_id": nid or None, "is_new": is_new, "is_sample": is_sample}
+
+
+def nd_structure_id(dam: dict | None) -> str:
+    """In the North Dakota profile only: the DWR id of a DWR dam, dugout or unknown structure picked from the ND
+    structures list (nd-structures.ts puts it in ``nid``: DWR-16431, DUG-…, UNK-…), which the DWR DamSafety plugins
+    take as the dam's id. Empty in the US profile, where another inventory's id is never a dam's id."""
+    from damit_desktop import profile as desk_profile
+
+    if not desk_profile.is_nd():
+        return ""
+    raw = str((dam or {}).get("nid") or "").strip().upper()
+    return raw if raw and OTHER_INVENTORY_RE.match(raw) else ""
 
 
 def nid_problem(dam: dict | None) -> str | None:
@@ -78,7 +91,14 @@ def nid_problem(dam: dict | None) -> str | None:
     The decision is DamIT Catalog's nid_rule applied to exactly the fields Crest hands off (handoff_ids), so Crest
     refuses what the plugins refuse: no NID ID and neither new nor a sample, an invalid nid_id, another inventory's id
     (DWR- / DUG- / UNK-) as dam_id even for a new dam or a sample, or two different NID IDs. One desk-side guard on
-    top: a desk record's own id is never taken as its NID ID (the NID ID comes from the NID pick, nidId / nid)."""
+    top: a desk record's own id is never taken as its NID ID (the NID ID comes from the NID pick, nidId / nid).
+
+    In the North Dakota profile the DWR DamSafety plugins take the record (they apply their own rules, and take DWR
+    ids), so nothing is refused here, as in the old dwr_crest desk."""
+    from damit_desktop import profile as desk_profile
+
+    if desk_profile.is_nd():
+        return None
     ids = handoff_ids(dam)
     error, _warning, nid = nid_rule(ids)
     if error is None and nid != ids["nid_id"]:

@@ -101,7 +101,7 @@ export function exportDamJson(dam: DamRecord, analysis: Analysis, shared: Shared
           nid_hazard: dam.nidHazard ?? null,
           nid_hazard_note: "As reported to the NID (FEMA class). Not used by the desk screen; not the class of record.",
           provenance: dam.provenance ?? {},
-          attribution: [dam.nidRef?.attribution].filter(Boolean),
+          attribution: [dam.nidRef?.attribution, dam.nidRef?.dwrAttribution].filter(Boolean),
         }
       : {}),
     // Only when an imported model run is the source of record (Results step), so dam.json is unchanged otherwise.
@@ -200,7 +200,7 @@ export function generateLisfloodPackage(dam: DamRecord, series: SeriesPoint[], o
   const cell = opts.cellSizeM != null && Number.isFinite(opts.cellSizeM) && opts.cellSizeM > 0 ? opts.cellSizeM : 10;
   const cells = Math.max(1, Math.round(opts.inflowCells ?? 2));
   const simHours = opts.simHours ?? 72;
-  // The record's floodplain Manning's n (the built-in 0.06 unless the record sets one), so the export matches the desk.
+  // The record's floodplain Manning's n (the built-in 0.05 unless the record sets one), so the export matches the desk.
   const fpfric = opts.fpfric ?? roughnessOf(dam.roughness).nFloodplain;
   const resroot = (dam.nid || "dam").toLowerCase().replace(/[^a-z0-9]/g, "_");
 

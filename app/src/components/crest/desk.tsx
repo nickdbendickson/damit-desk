@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
 import { locationProblem } from "@/lib/crest/guided";
-import { DEFAULT_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
+import { DEFAULT_ALGORITHMS, ND_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
 import { choiceKey, choiceText, classifyReceptors, receptorKey, reportLead } from "@/lib/crest/classify-receptors";
 import { crestApiHeaders, hasDesktopServer, serverNotices, workFolderHint } from "@/lib/crest/desktop-server";
 import { ClassificationPanel } from "@/components/crest/ClassificationPanel";
@@ -79,6 +79,9 @@ import { damChoice, screenAgainstChoice } from "@/lib/crest/jurisdiction";
 import { HydroChart, ValleyMap } from "./charts";
 import { useOnline } from "./use-online";
 import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel, useNidData } from "./NidDamPicker";
+import { NdDamPicker } from "./NdDamPicker";
+import { StructurePicker } from "./StructurePicker";
+import { useProfile, type DeskProfile } from "@/lib/crest/profile";
 import { ResultsStep } from "./ResultsStep";
 import { useAnalysisOfRecord, useResultsSync, useStripOfRecord } from "./results-flow";
 import { PaperReport } from "./PaperReport";
@@ -692,12 +695,20 @@ function LocationPanel({ dam }: { dam: DamRecord }) {
 
 function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const update = useDesk((s) => s.update);
+  const profile = useProfile((s) => s.profile);
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="rounded-md border border-line bg-card p-4">
         <h2 className="text-xl">Dam record</h2>
         <div className="mt-3">
-          <NidDamPicker dam={dam} />
+          {profile === "nd" ? (
+            <>
+              <NdDamPicker dam={dam} />
+              <StructurePicker />
+            </>
+          ) : (
+            <NidDamPicker dam={dam} />
+          )}
         </div>
         <NidHazardLine dam={dam} />
         <p className="mt-2 text-sm text-muted">{result.datum.rule}</p>
@@ -1773,13 +1784,16 @@ type HandoffInfo = {
   /** One-line notices from the desk server (the first-start copy of the old DamIT Crest settings folder). */
   notices?: string[];
 };
-let handoffInfo: HandoffInfo | null = null;
+/** The server's answer per desk profile: the ND profile hands off to the DWR DamSafety plugins (profile.py). */
+const handoffInfos: Partial<Record<DeskProfile, HandoffInfo>> = {};
 
 /** Shown until the desktop server answers (or in a page with no server): the compiled-in DamIT defaults. */
-const DEFAULT_ALGS: Record<string, string> = { ...DEFAULT_ALGORITHMS };
+const DEFAULT_ALGS: Record<DeskProfile, Record<string, string>> = { us: { ...DEFAULT_ALGORITHMS }, nd: { ...ND_ALGORITHMS } };
 
 function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const [, bump] = useState(0);
+  const profile = useProfile((s) => s.profile);
+  const handoffInfo = handoffInfos[profile] ?? null;
   const update = useDesk((st) => st.update);
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -1788,13 +1802,13 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
-    if (handoffInfo || !hasDesktopServer()) return;
+    if (handoffInfos[profile] || !hasDesktopServer()) return;
     let live = true;
-    fetch("/api/handoff", { headers: crestApiHeaders() })
+    fetch(`/api/handoff?profile=${profile}`, { headers: crestApiHeaders() })
       .then((r) => (r.ok ? r.json() : null))
       .then((info: HandoffInfo | null) => {
         if (live && info && info.algorithms) {
-          handoffInfo = info;
+          handoffInfos[profile] = info;
           bump((n) => n + 1);
         }
       })
@@ -1804,8 +1818,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => {
       live = false;
     };
-  }, []);
-  const algs = handoffInfo?.algorithms ?? DEFAULT_ALGS;
+  }, [profile]);
+  const algs = handoffInfo?.algorithms ?? DEFAULT_ALGS[profile];
   const online = useOnline();
   const strip = useMemo(() => floodStrip(dam, result), [dam, result]);
   const plss = useMemo(() => plssState(dam, strip.strip, online), [dam, strip.strip, online]);
@@ -1853,6 +1867,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           method: "POST",
           headers: crestApiHeaders(true),
           body: JSON.stringify({
+            // The desk profile: "nd" hands off to the DWR DamSafety plugins (desktop/damit_desktop/profile.py).
+            profile,
             // Piping when no failure mode was chosen; the server fills piping as well (handoff.resolved_failure_mode).
             dam: handoffDam(dam),
             // With what this record used of the shared defaults, for the dam.json the hand-off writes.
@@ -1949,7 +1965,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         bump((n) => n + 1);
       }
     },
-    [dam, result, files, update],
+    [dam, result, files, update, profile],
   );
   // The command palette's "Check QGIS hand-off" and "Write the dam folder" start here, with this panel's fields.
   useEffect(() => setJobStarter((p) => (handoff.busy ? undefined : void start(p as JobPath))), [start]);
@@ -1985,9 +2001,14 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       </p>
       <p className="mt-1 text-xs text-muted" data-testid="handoff-algorithms">
         Algorithms: {Object.entries(algs)
+          .filter(([, id]) => id)
           .map(([role, id]) => `${role} ${id}`)
           .join(" · ")}
-        {handoffInfo ? "" : " (DamIT defaults; set DAMIT_ALG_* or damit-handoff.json to point at other ids)"}
+        {handoffInfo
+          ? ""
+          : profile === "nd"
+            ? " (North Dakota profile: the DWR DamSafety plugins; set DAMIT_ND_ALG_* or the nd section of damit-handoff.json to point at other ids)"
+            : " (DamIT defaults; set DAMIT_ALG_* or damit-handoff.json to point at other ids)"}
         {handoffInfo?.problems?.length ? ` — ${handoffInfo.problems.join("; ")}` : ""}
       </p>
       {serverNotices(handoffInfo?.notices).map((n) => (
@@ -2165,9 +2186,11 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         <button type="button" className={btn} disabled={handoff.busy} data-fix="classify" onClick={() => void start("/api/classify")}>
           Classify ({algs.classify})
         </button>
-        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
-          Download layers ({algs.data})
-        </button>
+        {algs.data ? (
+          <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
+            Download layers ({algs.data})
+          </button>
+        ) : null}
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/pmp")}>
           Atlas 14 point ({algs.pmp})
         </button>
@@ -2185,7 +2208,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         ) : null}
       </div>
       <p className="mt-2 text-xs text-muted">
-        The flood button runs one dam ({algs.rundam}, or the DamIT runner CLI when both Point X and Point Y are filled in
+        The flood button runs one dam ({algs.rundam}, or the {profile === "nd" ? "DWR runner CLI (ndbreach_cli.py)" : "DamIT runner CLI"} when both Point X and Point Y are filled in
         the DEM's coordinates). It does not start {algs.batch}. A failure mode that was not chosen is sent as piping.
         The drawn line stays longitude and latitude, so it is not sent as DAM_LINES. Download layers keeps the offline
         structure layers for the dam's state. Atlas 14 is a precipitation-frequency estimate, not a PMP study. Find
