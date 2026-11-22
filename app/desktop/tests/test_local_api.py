@@ -249,6 +249,16 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(info["roles"]["classify"]["status"], "published")
         self.assertEqual(info["roles"]["batch"]["status"], "not published")
 
+    def test_handoff_endpoint_answers_for_the_nd_profile(self):
+        status, data = self.req("GET", "/api/handoff?profile=nd")
+        self.assertEqual(status, 200)
+        info = json.loads(data)
+        self.assertEqual(info["profile"], "nd")
+        self.assertEqual(info["algorithms"]["rundam"], "ndbreach:rundam")
+        self.assertEqual(info["algorithms"]["classify"], "ndhazard:classify")
+        status, data = self.req("GET", "/api/handoff")
+        self.assertEqual(json.loads(data)["profile"], "us")
+
     def test_nid_state_endpoint_needs_the_token_and_serves_the_cached_state(self):
         from damit_desktop import nid
 

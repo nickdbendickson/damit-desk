@@ -20,6 +20,21 @@ export const DEFAULT_ALGORITHMS = {
   finder: "damit_find:embankments",
 } as const;
 
+/**
+ * The North Dakota profile's ids (profile.ts; desktop/damit_desktop/algorithms.py ND_ALGORITHMS): the DWR DamSafety
+ * suite, as the old dwr_crest desk handed off. DamSafety Data publishes no download algorithm (data is empty).
+ */
+export const ND_ALGORITHMS: Record<keyof typeof DEFAULT_ALGORITHMS, string> = {
+  classify: "ndhazard:classify",
+  preflight: "nddam:preflight",
+  runchain: "nddam:runchain",
+  rundam: "ndbreach:rundam",
+  batch: "ndbreach:batch",
+  data: "",
+  pmp: "ndpmp:atlas14_point",
+  finder: "ndfind:embankments",
+};
+
 /** Piping unless overtopping was chosen (Nick, 2026-11-05): a missing or unknown mode is never overtopping. */
 export function handoffFailureMode(mode: unknown): FailureMode {
   return mode === "overtopping" ? "overtopping" : "piping";
