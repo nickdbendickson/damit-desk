@@ -408,7 +408,7 @@ class _Handler(SimpleHTTPRequestHandler):
         result = consume_launch_code(code)
         if result == "ok":
             self.send_response(303)
-            self.send_header("Location", f"/index.html#damit-token={API_TOKEN}")
+            self.send_header("Location", f"/index.html#damit-token={API_TOKEN}{profile_fragment()}")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -1040,9 +1040,17 @@ def write_text(path: Path, text: str) -> None:
         raise
 
 
+def profile_fragment() -> str:
+    """"&profile=nd" (or "&profile=us") when DAMIT_DESK_PROFILE names a profile, else "". The suite installer's North
+    Dakota launcher sets DAMIT_DESK_PROFILE=nd, so the desk opens in that profile (the page reads profile= from the
+    address fragment, profile.ts; the token is taken out of the fragment and the rest is kept)."""
+    chosen = desk_profile.normalize(os.environ.get("DAMIT_DESK_PROFILE"))
+    return f"&profile={chosen}" if (os.environ.get("DAMIT_DESK_PROFILE") or "").strip() else ""
+
+
 def desk_url(port: int) -> str:
     """The address the desk window opens: the API token rides in the fragment, which is never sent over HTTP."""
-    return f"http://127.0.0.1:{port}/index.html#damit-token={API_TOKEN}"
+    return f"http://127.0.0.1:{port}/index.html#damit-token={API_TOKEN}{profile_fragment()}"
 
 
 def launch_url(port: int, code: str) -> str:

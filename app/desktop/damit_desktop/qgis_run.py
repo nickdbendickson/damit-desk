@@ -163,7 +163,8 @@ def find_qgis_process() -> str | None:
     """QGIS_PROCESS; else the suite installer's DamIT qgis_process (a bare qgis_process uses the default QGIS profile,
     where the DamIT algorithms are usually missing); else qgis_process on PATH; else the Mac QGIS apps.
 
-    North Dakota profile: DAMIT_ND_QGIS_PROCESS; else the DWR suite's launcher (nd_launcher); else QGIS_PROCESS,
+    North Dakota profile: DAMIT_ND_QGIS_PROCESS; else the DWR suite's launcher (nd_launcher); else the DamIT suite
+    installer's qgis-process-damsafety.sh (.cmd), which reads its "damsafety" profile; else QGIS_PROCESS,
     PATH and the Mac apps as the old dwr_crest desk did. Never the DamIT suite's launcher: its QGIS profile has the
     DamIT plugins, not the DWR ones."""
     if desk_profile.is_nd():
@@ -173,6 +174,11 @@ def find_qgis_process() -> str | None:
         launcher = nd_launcher()
         if launcher:
             return launcher
+        # The DamIT suite installer (suite_install/install-all.sh) also installs the DWR plugins, in profile
+        # "damsafety", and writes this launcher for it beside qgis-process-damit.sh.
+        suite_nd = suite_qgis_process().with_name("qgis-process-damsafety" + suite_qgis_process().suffix)
+        if suite_nd.is_file():
+            return str(suite_nd)
     chosen = os.environ.get("QGIS_PROCESS")
     if chosen and Path(chosen).is_file():
         return chosen

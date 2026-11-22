@@ -235,6 +235,28 @@ class LauncherTests(Base):
                 self.assertNotIn("qgis-process-damit", str(qr.find_qgis_process() or ""))
 
 
+    def test_nd_takes_the_suite_installers_damsafety_launcher(self):
+        suite = self.root / "dam-suite"
+        suite.mkdir()
+        ext = ".cmd" if os.name == "nt" else ".sh"
+        (suite / f"qgis-process-damit{ext}").write_text("", encoding="utf-8")
+        (suite / f"qgis-process-damsafety{ext}").write_text("", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"DAMSUITE_PREFIX": str(suite), "DAMIT_ND_QGIS_PROCESS": ""}):
+            with profile_scope("nd"):
+                self.assertEqual(qr.find_qgis_process(), str(suite / f"qgis-process-damsafety{ext}"))
+            self.assertEqual(qr.find_qgis_process(), str(suite / f"qgis-process-damit{ext}"))
+
+
+class LaunchUrlTests(unittest.TestCase):
+    def test_desk_profile_rides_in_the_fragment(self):
+        from damit_desktop import __main__ as desk
+
+        with mock.patch.dict(os.environ, {"DAMIT_DESK_PROFILE": "nd"}):
+            self.assertTrue(desk.desk_url(1).endswith("&profile=nd"))
+        with mock.patch.dict(os.environ, {"DAMIT_DESK_PROFILE": ""}):
+            self.assertNotIn("profile=", desk.desk_url(1))
+
+
 class IdsAndDataTests(Base):
     def test_dwr_structure_ids_are_dam_ids_in_nd_only(self):
         with profile_scope("nd"):

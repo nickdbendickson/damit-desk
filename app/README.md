@@ -39,7 +39,8 @@ dugout or unknown-structure layer and no state suite pack (`NDSUITE_DATA`, `~/.n
 address points for ND dams, or the user's own), DEMs (3DEP or a local DEM) and NHD streams are separate inputs.
 
 **Profiles: United States (default) and North Dakota** (0.1.4; Nick, 2026-11-22: damit-desk is the one desk codebase,
-and the ND DWR desk `dwr_crest` retires into it). *Settings > Dam inventory profile*, or open the desk at `?profile=nd`.
+and the ND DWR desk `dwr_crest` retires into it). *Settings > Dam inventory profile*, open the desk at `?profile=nd`, or start it with `bin/damit-desk --profile nd`
+(`DAMIT_DESK_PROFILE=nd`; the suite installer's North Dakota launcher does this).
 The North Dakota profile changes only which dams and structures a record can be filled from: its Record-step picker
 (`src/lib/crest/nd-dams.ts`, `NdDamPicker.tsx`) adds the ND Department of Water Resources' dam values joined on NID ID
 (`src/lib/crest/data/nd_dams_dwr.json`, rebuilt by `npm run data:nd-dams-dwr`): height from DWR, NAVD 88 elevations
