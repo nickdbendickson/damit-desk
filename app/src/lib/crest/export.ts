@@ -101,7 +101,7 @@ export function exportDamJson(dam: DamRecord, analysis: Analysis, shared: Shared
           nid_hazard: dam.nidHazard ?? null,
           nid_hazard_note: "As reported to the NID (FEMA class). Not used by the desk screen; not the class of record.",
           provenance: dam.provenance ?? {},
-          attribution: [dam.nidRef?.attribution].filter(Boolean),
+          attribution: [dam.nidRef?.attribution, dam.nidRef?.dwrAttribution].filter(Boolean),
         }
       : {}),
     // Only when an imported model run is the source of record (Results step), so dam.json is unchanged otherwise.

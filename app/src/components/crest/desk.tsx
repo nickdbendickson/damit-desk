@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
 import { locationProblem } from "@/lib/crest/guided";
-import { DEFAULT_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
+import { DEFAULT_ALGORITHMS, ND_ALGORITHMS, handoffDam } from "@/lib/crest/handoff";
 import { choiceKey, choiceText, classifyReceptors, receptorKey, reportLead } from "@/lib/crest/classify-receptors";
 import { crestApiHeaders, hasDesktopServer, serverNotices, workFolderHint } from "@/lib/crest/desktop-server";
 import { ClassificationPanel } from "@/components/crest/ClassificationPanel";
@@ -26,7 +26,7 @@ import {
   exportFloodGeoJson,
   exportFloodKml,
   exportNd911Csv,
-  fetchNd911,
+  fetchStructures,
   nd911AutoPatch,
   wantsNd911Lookup,
   ND911_ATTRIBUTION,
@@ -34,9 +34,11 @@ import {
   nd911State,
   removeNd911Seeds,
   seedId,
+  structureWords,
   type Nd911Row,
   type Nd911State,
 } from "@/lib/crest/nd911";
+import { NSI_ATTRIBUTION } from "@/lib/crest/nsi";
 import {
   currentTerrain,
   DEM_ATTRIBUTION,
@@ -84,6 +86,9 @@ import { damChoice, screenAgainstChoice } from "@/lib/crest/jurisdiction";
 import { HydroChart, ValleyMap } from "./charts";
 import { useOnline } from "./use-online";
 import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel, useNidData } from "./NidDamPicker";
+import { NdDamPicker } from "./NdDamPicker";
+import { StructurePicker } from "./StructurePicker";
+import { useProfile, type DeskProfile } from "@/lib/crest/profile";
 import { ResultsStep } from "./ResultsStep";
 import { useAnalysisOfRecord, useResultsSync, useStripOfRecord } from "./results-flow";
 import { PaperReport } from "./PaperReport";
@@ -712,12 +717,20 @@ function LocationPanel({ dam }: { dam: DamRecord }) {
 
 function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const update = useDesk((s) => s.update);
+  const profile = useProfile((s) => s.profile);
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="rounded-md border border-line bg-card p-4">
         <h2 className="text-xl">Dam record</h2>
         <div className="mt-3">
-          <NidDamPicker dam={dam} />
+          {profile === "nd" ? (
+            <>
+              <NdDamPicker dam={dam} />
+              <StructurePicker />
+            </>
+          ) : (
+            <NidDamPicker dam={dam} />
+          )}
         </div>
         <NidHazardLine dam={dam} />
         <p className="mt-2 text-sm text-muted">{result.datum.rule}</p>
@@ -834,7 +847,7 @@ function BreachStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
             options={[
               ["froehlich", "Froehlich 2008"],
               ["macdonald", "MacDonald"],
-              ["tr60", "TR-60 width"],
+              ["tr60", "Height-multiple width (screening)"],
             ]}
             onChange={(method) => update({ method: method as BreachMethod })}
           />
@@ -1421,7 +1434,7 @@ function Nd911Panel({
     autoTried.current = true;
     setBusy(true);
     const id = dam.id;
-    fetchNd911(lookup)
+    fetchStructures(dam, lookup)
       .then((c) => { if (useDesk.getState().activeId === id) update({ nd911: c }); })
       .catch((e) => setError((e as Error).message))
       .finally(() => setBusy(false));
@@ -1459,7 +1472,7 @@ function Nd911Panel({
     setError(null);
     const id = dam.id;
     try {
-      const c = await fetchNd911(lookup);
+      const c = await fetchStructures(dam, lookup);
       if (useDesk.getState().activeId === id) update({ nd911: c });
     } catch (e) {
       setError((e as Error).message);
@@ -1468,6 +1481,8 @@ function Nd911Panel({
     }
   };
   const t = nd911.state === "ready" ? nd911.table : null;
+  const w = structureWords(dam);
+  const isNsi = w.short === "NSI";
   const seeds = new Map(dam.receptors.filter((r) => r.source === "nd911").map((r) => [r.id, r]));
   const addRows = (rows: Nd911Row[]) => update({ receptors: addNd911Seeds(dam.receptors, rows, result) });
   const remove = (ids?: string[]) => update({ receptors: removeNd911Seeds(dam.receptors, ids) });
@@ -1496,10 +1511,10 @@ function Nd911Panel({
         </p>
       ) : null}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-lg">911 address points {t ? `inside the ${t.against}` : "near the strip"}</h3>
+        <h3 className="text-lg">{w.noun[0].toUpperCase() + w.noun.slice(1)} {t ? `inside the ${t.against}` : "near the strip"}</h3>
         {nd911.state !== "offline" ? (
           <button type="button" onClick={() => void lookUp()} disabled={busy} className={btn}>
-            {busy ? "Looking up…" : t ? "Look up again" : "Look up 911 address points"}
+            {busy ? "Looking up…" : t ? "Look up again" : `Look up ${w.noun}`}
           </button>
         ) : null}
       </div>
@@ -1516,8 +1531,8 @@ function Nd911Panel({
       {t ? (
         <>
           <p className="mt-1 text-sm" data-testid="nd911-count">
-            <span className="font-medium">{t.rows.length}</span> of {t.total} address points in the looked-up box are inside
-            the {t.against}. They do not change the desk screen unless you add them for review.
+            <span className="font-medium">{t.rows.length}</span> of {t.total} {isNsi ? "structures" : "address points"} in the
+            looked-up box are inside the {t.against}. They do not change the desk screen unless you add them for review.
           </p>
           {t.rows.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -1525,7 +1540,7 @@ function Nd911Panel({
                 Add all {notAdded.length || ""} as structures for review
               </button>
               <button type="button" className={btn} disabled={seeds.size === 0} onClick={() => remove()}>
-                Remove 911 structures{seeds.size ? ` (${seeds.size})` : ""}
+                Remove {w.short} structures{seeds.size ? ` (${seeds.size})` : ""}
               </button>
             </div>
           ) : null}
@@ -1535,10 +1550,10 @@ function Nd911Panel({
                 <thead className="text-left text-xs tracking-wide text-muted uppercase">
                   <tr>
                     <th className="px-2 py-1">#</th>
-                    <th className="px-2 py-1">Address</th>
+                    <th className="px-2 py-1">{isNsi ? "Structure" : "Address"}</th>
                     <th className="px-2 py-1">Depth band</th>
                     <th className="px-2 py-1">km downstream</th>
-                    <th className="px-2 py-1">Place type</th>
+                    <th className="px-2 py-1">{isNsi ? "Occupancy" : "Place type"}</th>
                     <th className="px-2 py-1">For review</th>
                   </tr>
                 </thead>
@@ -1586,23 +1601,33 @@ function Nd911Panel({
             </div>
           ) : null}
           <p className="mt-2 text-xs text-muted">
-            Inside means within the {t.against}&apos;s depth bands; the band is the one the point falls in. An address point
-            marks an address, not a surveyed structure or floor height. Added points become home seeds on the channel
+            Inside means within the {t.against}&apos;s depth bands; the band is the one the point falls in.{" "}
+            {isNsi
+              ? "An NSI structure is a modelled record (USACE), not a survey: its occupancy, foundation height and day / night population are estimates to review."
+              : "An address point marks an address, not a surveyed structure or floor height."} Added points become home seeds on the channel
             bed (pad 0 ft, the desk&apos;s deepest case) at their distance downstream, listed under &quot;Needs an
             engineer&apos;s call&quot; until you classify them. Looked up{" "}
             {new Date(t.fetchedAt).toLocaleString()} and saved with this dam.
           </p>
-          <p className="mt-1 text-xs text-muted">
-            Fields kept: the published address, unit, community, ZIP, county, place type and placement, and the NG911 site
-            id. Not kept: {ND911_DROPPED_FIELDS.slice(0, 3).map((d) => d.field).join(", ")} (free text that can name people
-            or businesses) and duplicate or record-keeping fields. {ND911_ATTRIBUTION}
-          </p>
+          {isNsi ? (
+            <p className="mt-1 text-xs text-muted">
+              Fields kept: the NSI id, occupancy type and damage category, building type, stories, year built, foundation
+              height and type, and the day / night population estimates. The NSI holds no address, owner or occupant name.{" "}
+              {NSI_ATTRIBUTION}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted">
+              Fields kept: the published address, unit, community, ZIP, county, place type and placement, and the NG911 site
+              id. Not kept: {ND911_DROPPED_FIELDS.slice(0, 3).map((d) => d.field).join(", ")} (free text that can name people
+              or businesses) and duplicate or record-keeping fields. {ND911_ATTRIBUTION}
+            </p>
+          )}
         </>
       ) : null}
       {!t && seeds.size > 0 ? (
         <div className="mt-2">
           <button type="button" className={btn} onClick={() => remove()}>
-            Remove 911 structures ({seeds.size})
+            Remove {w.short} structures ({seeds.size})
           </button>
         </div>
       ) : null}
@@ -1830,13 +1855,16 @@ type HandoffInfo = {
   /** One-line notices from the desk server (the first-start copy of the old DamIT Crest settings folder). */
   notices?: string[];
 };
-let handoffInfo: HandoffInfo | null = null;
+/** The server's answer per desk profile: the ND profile hands off to the DWR DamSafety plugins (profile.py). */
+const handoffInfos: Partial<Record<DeskProfile, HandoffInfo>> = {};
 
 /** Shown until the desktop server answers (or in a page with no server): the compiled-in DamIT defaults. */
-const DEFAULT_ALGS: Record<string, string> = { ...DEFAULT_ALGORITHMS };
+const DEFAULT_ALGS: Record<DeskProfile, Record<string, string>> = { us: { ...DEFAULT_ALGORITHMS }, nd: { ...ND_ALGORITHMS } };
 
 function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const [, bump] = useState(0);
+  const profile = useProfile((s) => s.profile);
+  const handoffInfo = handoffInfos[profile] ?? null;
   const update = useDesk((st) => st.update);
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -1845,13 +1873,13 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
-    if (handoffInfo || !hasDesktopServer()) return;
+    if (handoffInfos[profile] || !hasDesktopServer()) return;
     let live = true;
-    fetch("/api/handoff", { headers: crestApiHeaders() })
+    fetch(`/api/handoff?profile=${profile}`, { headers: crestApiHeaders() })
       .then((r) => (r.ok ? r.json() : null))
       .then((info: HandoffInfo | null) => {
         if (live && info && info.algorithms) {
-          handoffInfo = info;
+          handoffInfos[profile] = info;
           bump((n) => n + 1);
         }
       })
@@ -1861,8 +1889,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     return () => {
       live = false;
     };
-  }, []);
-  const algs = handoffInfo?.algorithms ?? DEFAULT_ALGS;
+  }, [profile]);
+  const algs = handoffInfo?.algorithms ?? DEFAULT_ALGS[profile];
   const online = useOnline();
   const strip = useMemo(() => floodStrip(dam, result), [dam, result]);
   const plss = useMemo(() => plssState(dam, strip.strip, online), [dam, strip.strip, online]);
@@ -1912,6 +1940,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           method: "POST",
           headers: crestApiHeaders(true),
           body: JSON.stringify({
+            // The desk profile: "nd" hands off to the DWR DamSafety plugins (desktop/damit_desktop/profile.py).
+            profile,
             // Piping when no failure mode was chosen; the server fills piping as well (handoff.resolved_failure_mode).
             dam: handoffDam(dam),
             // With what this record used of the shared defaults, for the dam.json the hand-off writes.
@@ -2009,7 +2039,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         bump((n) => n + 1);
       }
     },
-    [dam, result, files, update],
+    [dam, result, files, update, profile],
   );
   // The command palette's "Check QGIS hand-off" and "Write the dam folder" start here, with this panel's fields.
   useEffect(() => setJobStarter((p) => (handoff.busy ? undefined : void start(p as JobPath))), [start]);
@@ -2045,9 +2075,14 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       </p>
       <p className="mt-1 text-xs text-muted" data-testid="handoff-algorithms">
         Algorithms: {Object.entries(algs)
+          .filter(([, id]) => id)
           .map(([role, id]) => `${role} ${id}`)
           .join(" · ")}
-        {handoffInfo ? "" : " (DamIT defaults; set DAMIT_ALG_* or damit-handoff.json to point at other ids)"}
+        {handoffInfo
+          ? ""
+          : profile === "nd"
+            ? " (North Dakota profile: the DWR DamSafety plugins; set DAMIT_ND_ALG_* or the nd section of damit-handoff.json to point at other ids)"
+            : " (DamIT defaults; set DAMIT_ALG_* or damit-handoff.json to point at other ids)"}
         {handoffInfo?.problems?.length ? ` — ${handoffInfo.problems.join("; ")}` : ""}
       </p>
       {serverNotices(handoffInfo?.notices).map((n) => (
@@ -2225,9 +2260,11 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         <button type="button" className={btn} disabled={handoff.busy} data-fix="classify" onClick={() => void start("/api/classify")}>
           Classify ({algs.classify})
         </button>
-        <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
-          Download layers ({algs.data})
-        </button>
+        {algs.data ? (
+          <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/data")}>
+            Download layers ({algs.data})
+          </button>
+        ) : null}
         <button type="button" className={btn} disabled={handoff.busy} onClick={() => void start("/api/pmp")}>
           Atlas 14 point ({algs.pmp})
         </button>
@@ -2245,7 +2282,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
         ) : null}
       </div>
       <p className="mt-2 text-xs text-muted">
-        The flood button runs one dam ({algs.rundam}, or the DamIT runner CLI when both Point X and Point Y are filled in
+        The flood button runs one dam ({algs.rundam}, or the {profile === "nd" ? "DWR runner CLI (ndbreach_cli.py)" : "DamIT runner CLI"} when both Point X and Point Y are filled in
         the DEM's coordinates). It does not start {algs.batch}. A failure mode that was not chosen is sent as piping.
         The drawn line stays longitude and latitude, so it is not sent as DAM_LINES. Download layers keeps the offline
         structure layers for the dam's state. Atlas 14 is a precipitation-frequency estimate, not a PMP study. Find
