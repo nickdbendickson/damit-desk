@@ -36,7 +36,7 @@ type Props = {
   source: string;
   /** Warnings of the imported run of record, if any. */
   runWarnings?: string[];
-  /** Pull time (and state) of the NID extract the record came from (NidDamPicker useNidData), for the age line in the footer. */
+  /** Pull time (and state) of the NID extract the record came from (lib/crest/use-nid-data.ts useNidData), for the age line in the footer. */
   bundles?: { nidFetchedUtc?: string | null; state?: string | null };
   /** "Now" for the dates (injected for tests and for a reproducible print); default the clock. */
   now?: Date;

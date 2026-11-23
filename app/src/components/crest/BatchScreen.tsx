@@ -62,7 +62,7 @@ import { EXAMPLE_STATE, NID_STATES, stateName } from "@/lib/crest/nid-state";
 import { saveText } from "@/lib/crest/save";
 import { useDesk } from "@/lib/crest/store";
 import { BatchTable } from "./BatchTable";
-import { selectNidState, useSelectedNidState } from "./NidDamPicker";
+import { selectNidState, useSelectedNidState } from "@/lib/crest/use-nid-data";
 import { useProfile } from "@/lib/crest/profile";
 import { ND_DEFAULT_STATUSES, ND_KINDS, loadNdStructures, ndInventory } from "@/lib/crest/nd-structures";
 import type { NdData } from "@/lib/crest/nd-dams";

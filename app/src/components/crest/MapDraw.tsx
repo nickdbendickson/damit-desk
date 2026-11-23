@@ -241,7 +241,6 @@ function FloodStripLayer({ strip, on, dashed }: { strip: FloodStrip | null | und
             },
     });
     return () => mounted.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the strip's content
   }, [map, key, on, dashed]);
   return null;
 }
@@ -285,7 +284,6 @@ function OutlineLayer({ outline, on }: { outline: TerrainOutline | null | undefi
       edge?.remove();
       open?.remove();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the outline's content
   }, [map, key, on]);
   return null;
 }

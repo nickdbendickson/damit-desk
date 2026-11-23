@@ -121,7 +121,6 @@ function DepthLayer({ depth }: { depth: FloodStrip | null }) {
       edge?.remove();
       open?.remove();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the layer's content
   }, [map, key]);
   return null;
 }

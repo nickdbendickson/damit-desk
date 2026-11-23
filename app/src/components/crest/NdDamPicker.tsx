@@ -56,7 +56,7 @@ export function StaleBundleBanner({ data, className = "mt-2" }: { data: NdData |
 }
 
 /** The bundles, loaded on first use. */
-export function useNdData(enabled = true): { data: NdData | null; error: string | null } {
+function useNdData(enabled = true): { data: NdData | null; error: string | null } {
   const [data, setData] = useState<NdData | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
