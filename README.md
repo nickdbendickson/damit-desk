@@ -153,9 +153,13 @@ at a DamIT data folder, `DAMIT_DEM` at a default DEM.
 ## A shortcut
 
 ```bash
-bin/install-launcher          # Mac: ~/Applications/DamIT Desk.app
-                              # Linux: a "DamIT Desk" menu entry
+bin/install-launcher          # Mac: ~/Applications/DamIT Desk.app and DamIT Desk (North Dakota).app
+                              # Linux: "DamIT Desk" and "DamIT Desk (North Dakota)" menu entries
 ```
+
+There is one launcher per profile: "DamIT Desk" opens the United States profile and "DamIT Desk (North Dakota)" the
+North Dakota one (`bin/damit-desk --profile us|nd`). Each carries the desk icon (`share/damit-desk.icns` on the Mac,
+`share/damit-desk.svg` on Linux, `share/damit-desk.ico` on Windows).
 
 On Linux the menu entry opens a terminal window that shows the address and the log. Keep it open while you use the
 desk and close it (or press Ctrl+C) to stop the desk. That is the same as starting `bin/damit-desk` in a terminal. To
@@ -167,7 +171,8 @@ On Windows, from the repo folder:
 powershell -File bin\install-launcher.ps1
 ```
 
-That puts DamIT Desk in the Start menu. The shortcut runs `bin\damit-desk.cmd`.
+That puts "DamIT Desk" and "DamIT Desk (North Dakota)" in the Start menu, with the desk icon. Each runs
+`bin\damit-desk.cmd --profile us` or `--profile nd`.
 
 ## What is not in this repo yet
 
@@ -181,7 +186,8 @@ bin/damit-desk            Linux and Mac
 bin/damit-desk.cmd        Windows
 bin/install-launcher      Mac app and Linux menu entry
 bin/install-launcher.ps1  Windows Start-menu shortcut
-share/damit-desk.svg      the icon
+share/damit-desk.svg      the icon (Linux); .icns (Mac app) and .ico (Windows shortcut) beside it
+tools/make_icns.py        rebuilds the .icns from PNG renders of the SVG
 app/                      the desk (React + Leaflet, pywebview)
   desktop/run.py          python entry (the server: desktop/damit_desktop/__main__.py)
   src/lib/crest/          breach screen, handoff, jurisdiction display

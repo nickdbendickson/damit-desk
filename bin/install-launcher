@@ -1,43 +1,76 @@
 #!/bin/sh
-# Put DamIT Desk on this computer: a Mac app, a Linux menu entry, or tell Windows to use the PowerShell script.
+# Put DamIT Desk on this computer, once per profile: "DamIT Desk" (United States) and "DamIT Desk (North Dakota)",
+# each a Mac app with the desk icon or a Linux menu entry. On Windows, use install-launcher.ps1.
 # Run from anywhere. It does not install QGIS.
 set -e
 HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/.." && pwd)
 ICON="$ROOT/share/damit-desk.svg"
-NAME="DamIT Desk"
+ICNS="$ROOT/share/damit-desk.icns"
 
-case "$(uname -s)" in
-  Darwin)
-    DEST="${HOME}/Applications/${NAME}.app"
-    mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
-    cp "$ICON" "$DEST/Contents/Resources/damit-desk.svg"
-    # Executable name has no space: a space in CFBundleExecutable fails on some Macs.
-    cat > "$DEST/Contents/Info.plist" << EOF
+# mac_app NAME SLUG PROFILE: ~/Applications/NAME.app, which opens the desk in PROFILE (us or nd).
+mac_app() {
+  NAME=$1
+  SLUG=$2
+  PROFILE=$3
+  DEST="${HOME}/Applications/${NAME}.app"
+  mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
+  cp "$ICNS" "$DEST/Contents/Resources/damit-desk.icns"
+  # Executable name has no space: a space in CFBundleExecutable fails on some Macs.
+  cat > "$DEST/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key><string>${NAME}</string>
   <key>CFBundleDisplayName</key><string>${NAME}</string>
-  <key>CFBundleIdentifier</key><string>org.damit.desk</string>
+  <key>CFBundleIdentifier</key><string>org.damit.${SLUG}</string>
   <key>CFBundleVersion</key><string>1</string>
-  <key>CFBundleExecutable</key><string>damit-desk</string>
+  <key>CFBundleExecutable</key><string>${SLUG}</string>
+  <key>CFBundleIconFile</key><string>damit-desk</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><false/>
 </dict>
 </plist>
 EOF
-    cat > "$DEST/Contents/MacOS/damit-desk" << EOF
+  cat > "$DEST/Contents/MacOS/${SLUG}" << EOF
 #!/bin/bash
-exec "$ROOT/bin/damit-desk"
+exec "$ROOT/bin/damit-desk" --profile ${PROFILE}
 EOF
-    chmod +x "$DEST/Contents/MacOS/damit-desk"
-    # A file from a zip is quarantined; clear it so the first open is not blocked.
-    xattr -cr "$DEST" 2>/dev/null || true
-    echo "Installed ${DEST}"
-    echo "Open it from Applications. If macOS says it cannot be opened, right-click it and choose Open."
+  chmod +x "$DEST/Contents/MacOS/${SLUG}"
+  # A file from a zip is quarantined; clear it so the first open is not blocked.
+  xattr -cr "$DEST" 2>/dev/null || true
+  # Finder caches app icons; touching the bundle makes it read the new one.
+  touch "$DEST"
+  echo "Installed ${DEST}"
+}
+
+# linux_entry NAME SLUG PROFILE: a menu entry that opens the desk in PROFILE (us or nd).
+linux_entry() {
+  NAME=$1
+  SLUG=$2
+  PROFILE=$3
+  cat > "$DEST/${SLUG}.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=${NAME}
+Comment=Dam breach screening, model handoff, and classification. QGIS stays in the background.
+Exec="${EXEC}" --profile ${PROFILE}
+Icon=damit-desk
+Terminal=true
+Categories=Science;Engineering;
+StartupNotify=true
+EOF
+  chmod +x "$DEST/${SLUG}.desktop"
+  echo "Installed ${DEST}/${SLUG}.desktop"
+}
+
+case "$(uname -s)" in
+  Darwin)
+    mac_app "DamIT Desk" damit-desk us
+    mac_app "DamIT Desk (North Dakota)" damit-desk-nd nd
+    echo "Open them from Applications. If macOS says one cannot be opened, right-click it and choose Open."
     ;;
   Linux)
     DATA="${XDG_DATA_HOME:-${HOME}/.local/share}"
@@ -50,27 +83,16 @@ EOF
     # escaped as the Desktop Entry spec asks. Terminal=true: the desk is a local server; its terminal shows the
     # address to open, the log, and closes the desk with Ctrl+C.
     EXEC=$(printf '%s' "${ROOT}/bin/damit-desk" | sed -e 's/[\\"`$]/\\&/g')
-    cat > "$DEST/damit-desk.desktop" << EOF
-[Desktop Entry]
-Type=Application
-Name=${NAME}
-Comment=Dam breach screening, model handoff, and classification. QGIS stays in the background.
-Exec="${EXEC}"
-Icon=damit-desk
-Terminal=true
-Categories=Science;Engineering;
-StartupNotify=true
-EOF
-    chmod +x "$DEST/damit-desk.desktop"
+    linux_entry "DamIT Desk" damit-desk us
+    linux_entry "DamIT Desk (North Dakota)" damit-desk-nd nd
     if command -v update-desktop-database >/dev/null 2>&1; then
       update-desktop-database "$DEST" >/dev/null 2>&1 || true
     fi
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
       gtk-update-icon-cache -q -t "${DATA}/icons/hicolor" >/dev/null 2>&1 || true
     fi
-    echo "Installed ${DEST}/damit-desk.desktop"
-    echo "It is in the application menu. It opens a terminal for the desk; close the desk with Ctrl+C there."
-    echo "Or run: ${ROOT}/bin/damit-desk"
+    echo "They are in the application menu. Each opens a terminal for the desk; close the desk with Ctrl+C there."
+    echo "Or run: ${ROOT}/bin/damit-desk  (add --profile nd for North Dakota)"
     ;;
   *)
     echo "On Windows, from this folder run: powershell -File install-launcher.ps1"

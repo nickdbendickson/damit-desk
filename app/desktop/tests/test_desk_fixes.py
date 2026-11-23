@@ -634,8 +634,56 @@ class LauncherTests(unittest.TestCase):
             entry = (home / ".local/share/applications/damit-desk.desktop").read_text()
             self.assertTrue((home / ".local/share/icons/hicolor/scalable/apps/damit-desk.svg").is_file())
         exec_line = [l for l in entry.splitlines() if l.startswith("Exec=")][0]
-        self.assertTrue(exec_line.startswith('Exec="') and exec_line.rstrip().endswith('"'), exec_line)
+        self.assertTrue(exec_line.startswith('Exec="'), exec_line)
         self.assertIn("Terminal=true", entry)  # the server's terminal: its URL, its log, Ctrl+C to stop
+        self.assertTrue(exec_line.rstrip().endswith('" --profile us'), exec_line)
+
+    def test_one_menu_entry_per_profile(self):
+        if sys.platform == "darwin":
+            self.skipTest("Linux branch")
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            env = {**os.environ, "HOME": str(home), "XDG_DATA_HOME": ""}
+            subprocess.run(["sh", str(REPO / "bin" / "install-launcher")], env=env, check=True,
+                           stdout=subprocess.DEVNULL)
+            apps = home / ".local/share/applications"
+            us = (apps / "damit-desk.desktop").read_text()
+            nd = (apps / "damit-desk-nd.desktop").read_text()
+        self.assertIn("Name=DamIT Desk\n", us)
+        self.assertIn("Name=DamIT Desk (North Dakota)\n", nd)
+        self.assertIn("--profile nd", [l for l in nd.splitlines() if l.startswith("Exec=")][0])
+
+
+class LauncherIconTests(unittest.TestCase):
+    """The app icon per OS: the SVG (Linux), the .icns the Mac app bundle names, the .ico the Windows shortcuts use."""
+
+    def test_icns_holds_png_renders_at_every_size_the_mac_asks_for(self):
+        data = (REPO / "share" / "damit-desk.icns").read_bytes()
+        self.assertEqual(data[:4], b"icns")
+        self.assertEqual(int.from_bytes(data[4:8], "big"), len(data))
+        sizes, at = {}, 8
+        while at < len(data):
+            kind, length = data[at:at + 4].decode("ascii"), int.from_bytes(data[at + 4:at + 8], "big")
+            png = data[at + 8:at + length]
+            self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n", kind)
+            sizes[kind] = int.from_bytes(png[16:20], "big")
+            at += length
+        self.assertEqual(at, len(data))
+        for kind, px in (("icp4", 16), ("icp5", 32), ("ic07", 128), ("ic08", 256), ("ic09", 512), ("ic10", 1024)):
+            self.assertEqual(sizes.get(kind), px, kind)
+
+    def test_mac_bundle_and_windows_shortcuts_name_their_icon(self):
+        sh = (REPO / "bin" / "install-launcher").read_text()
+        self.assertIn("<key>CFBundleIconFile</key><string>damit-desk</string>", sh)
+        self.assertIn('cp "$ICNS" "$DEST/Contents/Resources/damit-desk.icns"', sh)
+        self.assertIn('mac_app "DamIT Desk (North Dakota)" damit-desk-nd nd', sh)
+        ps1 = (REPO / "bin" / "install-launcher.ps1").read_text()
+        self.assertIn('$Link.IconLocation = $Icon + ",0"', ps1)
+        self.assertIn('@("DamIT Desk (North Dakota)", "nd")', ps1)
+        ico = (REPO / "share" / "damit-desk.ico").read_bytes()
+        self.assertEqual(ico[:4], b"\x00\x00\x01\x00")  # an icon resource
+        self.assertGreaterEqual(int.from_bytes(ico[4:6], "little"), 4)
 
 
 if __name__ == "__main__":

@@ -1,17 +1,23 @@
-# DamIT Desk Start-menu shortcut. Run from the repo: powershell -File bin\install-launcher.ps1
+# DamIT Desk Start-menu shortcuts, one per profile: "DamIT Desk" (United States) and "DamIT Desk (North Dakota)",
+# each with the desk icon. Run from the repo: powershell -File bin\install-launcher.ps1
 $ErrorActionPreference = "Stop"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $Here
 $Target = Join-Path $Here "damit-desk.cmd"
+$Icon = Join-Path $Root "share\damit-desk.ico"
 $Menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 New-Item -ItemType Directory -Force -Path $Menu | Out-Null
-$Shortcut = Join-Path $Menu "DamIT Desk.lnk"
 $Shell = New-Object -ComObject WScript.Shell
-$Link = $Shell.CreateShortcut($Shortcut)
-$Link.TargetPath = $Target
-$Link.WorkingDirectory = (Join-Path $Root "app\desktop")
-$Link.WindowStyle = 7
-$Link.Description = "DamIT Desk. QGIS stays in the background."
-$Link.Save()
-Write-Output "Installed $Shortcut"
+foreach ($Entry in @(@("DamIT Desk", "us"), @("DamIT Desk (North Dakota)", "nd"))) {
+    $Shortcut = Join-Path $Menu ($Entry[0] + ".lnk")
+    $Link = $Shell.CreateShortcut($Shortcut)
+    $Link.TargetPath = $Target
+    $Link.Arguments = "--profile " + $Entry[1]
+    $Link.WorkingDirectory = (Join-Path $Root "app\desktop")
+    $Link.WindowStyle = 7
+    $Link.IconLocation = $Icon + ",0"
+    $Link.Description = $Entry[0] + ". QGIS stays in the background."
+    $Link.Save()
+    Write-Output "Installed $Shortcut"
+}
 Write-Output "Open DamIT Desk from the Start menu."
