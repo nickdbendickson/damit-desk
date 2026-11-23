@@ -256,6 +256,13 @@ export type HazardResult = {
    * BNSF KO 15 trains/day from the rail lookup); absent when none do. The class badge shows "needs ruling".
    */
   ruling?: { label: string; hits: number; unruled: number; why: string[] } | null;
+  /**
+   * The algorithm that gave this result (damit:classify, or ndhazard:classify under the North Dakota profile), so the
+   * desk names the one that ran. Absent in results from before 2026-11-22 (handoff.ts resultAlgorithm infers it).
+   */
+  source?: string | null;
+  /** ndhazard:classify's ACER TM 11 class beside the ND class. */
+  tm11Class?: string | null;
   classifiedAt: string;
   /** choiceKey / receptorKey (classify-receptors.ts) and the choice in words, at the time of the run. */
   choiceKey: string;

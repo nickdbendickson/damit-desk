@@ -15,6 +15,7 @@
  */
 import { downstreamDirection, fromLocal, toLocal, type XY } from "./aoi.ts";
 import { damLocation } from "./engine.ts";
+import { classifyAlgorithm, ND_ALGORITHMS } from "./handoff.ts";
 import { damChoice, handoffChoice, resolveChoice } from "./jurisdiction.ts";
 import { halfAt } from "./results.ts";
 import type { Analysis, ClassificationChoice, DamRecord, GeoJSONFeature, HazardResult, ReceptorSeed } from "./types.ts";
@@ -218,7 +219,9 @@ export type ReportLead = {
   lines: string[];
 };
 
-export function reportLead(dam: DamRecord, result: Pick<Analysis, "flood">): ReportLead {
+export function reportLead(dam: DamRecord, result: Pick<Analysis, "flood">, profile: "us" | "nd" = "us"): ReportLead {
+  const alg = classifyAlgorithm(profile, dam.hazardResult);
+  const nd = alg === ND_ALGORITHMS.classify;
   const st = hazardStatus(dam, result);
   const chosen = choiceText(damChoice(dam));
   if (st.state === "current") {
@@ -234,12 +237,13 @@ export function reportLead(dam: DamRecord, result: Pick<Analysis, "flood">): Rep
             ...missing.map(([k, why]) => `${k} not checked: ${why}.`),
           ]
         : []),
-      `damit:classify judged the downstream receptors with ${chosen}: ${r.suggestedClass}` +
+      `${alg} judged the downstream receptors${nd ? "" : ` with ${chosen}`}: ${r.suggestedClass}` +
         (ord != null ? ` (ordinal ${ord}${r.genericLabel && r.genericLabel !== r.suggestedClass ? `, ${r.genericLabel}` : ""})` : "") +
         ". A suggested class; the engineer of record and the regulating agency make the determination.",
     ];
     for (const h of r.driving ?? []) lines.push(`${h.method} ${h.label}: ${h.reason}${h.receptors ? ` (${h.receptors} receptor${h.receptors === 1 ? "" : "s"})` : ""}`);
-    if (r.layers) lines.push(`Receptors sent: ${Object.entries(r.layers).map(([k, n]) => `${k} ${n}`).join(", ")}${r.skipped ? `; ${r.skipped} not sent (no position)` : ""}.`);
+    if (r.tm11Class) lines.push(`ACER TM 11: ${r.tm11Class}.`);
+    if (r.layers) lines.push(`Receptors ${nd ? "checked" : "sent"}: ${Object.entries(r.layers).map(([k, n]) => `${k} ${n}`).join(", ")}${r.skipped ? `; ${r.skipped} not sent (no position)` : ""}.`);
     const src = Object.entries(r.layerSources ?? {});
     if (src.length) lines.push(`Real receptor layers: ${src.map(([k, s]) => `${k.toLowerCase()} from ${s}`).join("; ")}.`);
     if (r.railTrainsLookup) lines.push(`Rail trains per day from ${r.railTrainsLookup} (values from a lookup need a ruling).`);
@@ -255,7 +259,7 @@ export function reportLead(dam: DamRecord, result: Pick<Analysis, "flood">): Rep
       kind: "stale",
       title: `DamIT classification (${chosen}): out of date`,
       lines: [
-        `The last damit:classify result (${st.result.suggestedClass}) is not shown as this jurisdiction's class: ${st.why}. Run Classify again.`,
+        `The last ${alg} result (${st.result.suggestedClass}) is not shown as this jurisdiction's class: ${st.why}. Run Classify again.`,
       ],
     };
   const exp = classifyReceptors(dam, result);
@@ -264,9 +268,11 @@ export function reportLead(dam: DamRecord, result: Pick<Analysis, "flood">): Rep
     kind: "none",
     title: `DamIT classification (${chosen}): not run yet`,
     lines: [
-      n
-        ? `Classify (below) sends ${n} downstream receptor${n === 1 ? "" : "s"} to damit:classify with ${chosen}; the class for this choice comes from there.`
-        : "No downstream receptor can be sent to damit:classify yet (none has a position). Add or map receptors and draw the breach point, dam line and reservoir point.",
+      nd
+        ? `Classify (below) runs ${alg} on the dam folder: it finds the downstream structures, roads and rail itself (NSI, ND 911 address points, roads, rail), so the desk's own receptors are not sent.`
+        : n
+        ? `Classify (below) sends ${n} downstream receptor${n === 1 ? "" : "s"} to ${alg} with ${chosen}; the class for this choice comes from there.`
+        : `No downstream receptor can be sent to ${alg} yet (none has a position). Add or map receptors and draw the breach point, dam line and reservoir point.`,
       ...(exp.skipped.length ? [`${exp.skipped.length} receptor${exp.skipped.length === 1 ? "" : "s"} cannot be placed and would not be sent.`] : []),
     ],
   };

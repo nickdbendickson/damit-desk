@@ -1,5 +1,6 @@
 /**
- * The real receptors damit:classify judged (GET /api/classify/receptors, classify_receptors.py), for the Dashboard and
+ * The real receptors the classify algorithm judged (GET /api/classify/receptors, classify_receptors.py: damit:classify's
+ * damit_hazard_receptors.gpkg, or ndhazard:classify's Habitable_Structures / Roads_Inundated / Rail_Inundated), for the Dashboard and
  * the Report: names, class, depth, a point to zoom to, and which ones rest on a value that still needs a ruling.
  * Pure; the component fetches and draws. Absaraka desk test 2026-11-21: classify counted 230 wet structures while the
  * desk only listed its own 4 address points, so the two counts looked like a contradiction.
@@ -32,14 +33,20 @@ export type ClassifyList = {
   truncated: boolean;
   counts: Partial<Record<ClassifyLayer, { total: number; wet: number; hit: number }>>;
   gpkg: string;
+  /** Every receptor file read (ndhazard:classify writes one per layer); absent for damit:classify's single GeoPackage. */
+  files?: string[];
   /** The report's "needs ruling" summary (qgis_run.unruled_top); undefined when the server did not say. */
   ruling?: HazardResult["ruling"];
 };
 
 export const LAYER_WORD: Record<ClassifyLayer, string> = { STRUCTURES: "Structure", ROADS: "Road", RAIL: "Rail" };
 
-/** Flags on a receptor whose value is not ruled yet (classify_receptors / qgis_run.UNRULED_CODES). */
-const UNRULED_FLAGS = ["trains_lookup"];
+/**
+ * Flags on a receptor whose value is not ruled yet: qgis_run.UNRULED_CODES (damit:classify), and classify_receptors
+ * ND_UNRULED (ndhazard:classify: a road with no AADT assumed Medium, a rail crossing not confirmed, a structure whose
+ * habitability is unverified).
+ */
+const UNRULED_FLAGS = ["trains_lookup", "aadt_assumed", "crossing_unconfirmed", "habitability_unverified"];
 
 export const needsRuling = (r: Pick<ClassifyReceptor, "flags">): boolean => r.flags.some((f) => UNRULED_FLAGS.includes(f));
 
@@ -77,6 +84,7 @@ export function parseClassifyList(raw: unknown): ClassifyList | null {
     truncated: o.truncated === true,
     counts: (o.counts && typeof o.counts === "object" ? o.counts : {}) as ClassifyList["counts"],
     gpkg: String(o.gpkg ?? ""),
+    ...(Array.isArray(o.files) ? { files: o.files.map(String) } : {}),
     ...("ruling" in o ? { ruling: parseRuling(o.ruling) } : {}),
   };
 }

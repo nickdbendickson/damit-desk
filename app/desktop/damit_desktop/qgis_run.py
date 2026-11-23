@@ -1639,7 +1639,11 @@ def _run_classify_nd(dam: dict, folder: Path, cfg: HandoffConfig, log, base: dic
 
     It reads the dam project folder (DAM_FOLDER) and gathers the structures itself (NSI and the ND GIS Hub address
     points, roads, rail), so the desk's receptor layers and jurisdiction choice are not sent: it gives the ND class and
-    the ACER TM 11 class. A suggested class, as with damit:classify."""
+    the ACER TM 11 class. A suggested class, as with damit:classify.
+
+    Its receptor layers (outputs/Classification: Habitable_Structures.gpkg, Roads_Inundated.gpkg, Rail_Inundated.gpkg)
+    are read back (classify_receptors.nd_summary) so the receptor list, map layer, report table and "needs ruling"
+    flag show the ND run the same way they show a damit:classify one."""
     alg = cfg.alg("classify")
     _log_config(log, cfg, ("classify",))
     exe = find_qgis_process()
@@ -1691,7 +1695,25 @@ def _run_classify_nd(dam: dict, folder: Path, cfg: HandoffConfig, log, base: dic
             "outputFolder": results.get("OUTPUT_FOLDER"),
             "mode": "nd",
             "source": alg,
+            # ndhazard:classify gathers every layer itself (NSI, ND 911 points, roads, rail); a layer it could not get
+            # is in its own summary. The desk sends it no receptor layer, so none is "not checked" here.
+            "complete": True,
+            "notChecked": {},
         }
+        from damit_desktop import classify_receptors  # here: classify_receptors imports this module
+
+        out_dir = Path(results.get("OUTPUT_FOLDER") or folder / "outputs")
+        nd = classify_receptors.nd_summary(out_dir / "Classification")
+        if nd:
+            out["gpkg"] = nd["gpkg"]
+            out["classification"].update({k: v for k, v in nd.items() if k != "files"})
+            log("Receptors by class: " + ", ".join(nd["files"]))
+            if nd["ruling"]:
+                g = nd["ruling"]
+                log(f"Needs a ruling: {g['unruled']} of the {g['hits']} {g['label']} receptor(s) rest on a value the "
+                    "engineer still has to rule on (" + "; ".join(g["why"]) + ").")
+        else:
+            log(f"No receptor layer in {out_dir / 'Classification'}: the receptor list stays empty for this run.")
         log(f"Suggested ND hazard class: {cls}" + (f"; ACER TM 11: {results['TM11_CLASS']}" if results.get("TM11_CLASS")
                                                     else "") + ". A suggestion, not an official hazard classification.")
     elif code == 0:
@@ -1992,6 +2014,7 @@ def run_classify(
             "ordinal": results.get("ORDINAL"),
             "report": results.get("REPORT"),
             "gpkg": results.get("GPKG"),
+            "source": alg,
             "layers": written["counts"],
             "skipped": len(written["skipped"]),
             "mode": choice["mode"],

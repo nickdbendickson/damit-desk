@@ -19,6 +19,9 @@ import { choiceText, paperStamp, reportLead } from "@/lib/crest/classify-recepto
 import { damChoice } from "@/lib/crest/jurisdiction";
 import type { Analysis, DamRecord } from "@/lib/crest/types";
 import { CREST_VERSION } from "@/lib/crest/version";
+import { useProfile } from "@/lib/crest/profile";
+import { receptorFilesText } from "@/lib/crest/handoff";
+import { useClassifyAlg } from "./use-classify-alg";
 import { useClassifyReceptors } from "./use-classify-receptors";
 import { countsLine, LAYER_WORD, needsRuling, rulingFlag } from "@/lib/crest/classify-list";
 
@@ -115,13 +118,15 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
   const level = result.screen.label;
   // The class for the chosen jurisdiction is damit:classify's (when it ran for this choice and these receptors); the
   // desk screen is a schematic preview on the ND / ACER TM 11 rules and is never stamped as the chosen state's class.
-  const lead = reportLead(dam, result);
+  const profile = useProfile((s) => s.profile);
+  const classifyAlg = useClassifyAlg(dam.hazardResult);
+  const lead = reportLead(dam, result, profile);
   const hazardClass = lead.kind === "hazard" ? dam.hazardResult?.suggestedClass : undefined;
   const chosen = choiceText(damChoice(dam));
   // The receptor rows: damit:classify's real receptors when its result is current, else the desk's own list.
-  const metrics = receptorMetrics(result, lead.kind === "hazard" ? dam.hazardResult : null);
+  const metrics = receptorMetrics(result, lead.kind === "hazard" ? dam.hazardResult : null, profile);
   const { rows, shown, total } = paperRows(result);
-  const section = receptorSection(result, lead.kind === "hazard" ? dam.hazardResult : null);
+  const section = receptorSection(result, lead.kind === "hazard" ? dam.hazardResult : null, profile);
   // classify's own receptors with names, when its result is current and the desk server could read its GeoPackage.
   const classifyLoad = useClassifyReceptors(dam);
   const judged = lead.kind === "hazard" ? (classifyLoad.list?.receptors ?? []) : [];
@@ -272,7 +277,7 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
         </p>
         {judged.length ? (
           <>
-            <h3 className="p-sub">Receptors damit:classify judged ({judgedCounts})</h3>
+            <h3 className="p-sub">Receptors {classifyAlg} judged ({judgedCounts})</h3>
             <div className="p-scroll">
               <table className="recepttab" data-testid="paper-classify-receptors">
                 <thead>
@@ -307,7 +312,7 @@ function PaperSheet({ dam, result, source, runWarnings = [], bundles, now = new 
             </div>
             <p className="fine">
               {judged.length > PAPER_CLASSIFY_ROWS ? `The ${PAPER_CLASSIFY_ROWS} strongest of ${judged.length.toLocaleString("en-US")}; ` : ""}
-              every receptor is in damit_hazard_receptors.gpkg.
+              every receptor is in {receptorFilesText(classifyAlg)}.
             </p>
           </>
         ) : null}

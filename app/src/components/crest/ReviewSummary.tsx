@@ -10,11 +10,12 @@ import {
   classBadge,
   hitRows,
   sortHits,
-  SUGGESTED_DISCLAIMER,
+  suggestedDisclaimer,
   summaryTiles,
   type HitSortKey,
 } from "@/lib/crest/review-summary";
 import type { Analysis, DamRecord } from "@/lib/crest/types";
+import { useClassifyAlg } from "./use-classify-alg";
 
 const BADGE: Record<string, string> = {
   none: "border-line bg-card text-muted",
@@ -41,8 +42,9 @@ const COLS: { key: HitSortKey; label: string; cls?: string }[] = [
 const PAGE = 50;
 
 export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: Pick<Analysis, "flood" | "breach">; where: "review" | "report" }) {
-  const badge = useMemo(() => classBadge(dam, result), [dam, result]);
-  const tiles = useMemo(() => summaryTiles(dam, result), [dam, result]);
+  const alg = useClassifyAlg(dam.hazardResult);
+  const badge = useMemo(() => classBadge(dam, result, alg), [dam, result, alg]);
+  const tiles = useMemo(() => summaryTiles(dam, result, alg), [dam, result, alg]);
   const st = useMemo(() => hazardStatus(dam, result), [dam, result]);
   const hits = useMemo(() => hitRows(st.state === "none" ? null : st.result), [st]);
   const ruling = useMemo(() => rulingFlag(st.state === "none" ? null : st.result), [st]);
@@ -91,7 +93,7 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
         </div>
       </div>
       <p className="mt-2 text-xs text-muted" data-testid="class-disclaimer">
-        {SUGGESTED_DISCLAIMER}
+        {suggestedDisclaimer(alg)}
       </p>
       <dl className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4" data-testid="summary-tiles">
         {tiles.map((t) => (
@@ -111,7 +113,7 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
         </h3>
         {hits.source === "none" ? (
           <p className="mt-1 text-sm text-muted" data-testid="hits-none">
-            {st.state === "none" ? "No damit:classify result yet: run Classify… on the Export & Hand-off tab to list the hits." : "This result lists no criteria hits."}
+            {st.state === "none" ? `No ${alg} result yet: run Classify… on the Export & Hand-off tab to list the hits.` : "This result lists no criteria hits."}
           </p>
         ) : (
           <>
