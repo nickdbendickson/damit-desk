@@ -81,6 +81,11 @@ export const STEP_DONE_RULE: Record<StepId, string> = {
   report: "damit:classify returned a class",
 };
 
+/** STEP_DONE_RULE in words, with the Report rule naming the active profile's classify algorithm. */
+export function stepDoneRule(id: StepId, classifyAlg = "damit:classify"): string {
+  return id === "report" ? `${classifyAlg} returned a class` : STEP_DONE_RULE[id];
+}
+
 export type RailState = "done" | "current" | "blocked" | "todo";
 
 /** The rail's mark for one step: the current step, a step held by missing inputs, complete, or not started. */

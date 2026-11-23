@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import struct
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ sys.path.insert(0, str(DESKTOP))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import damit_desktop.qgis_run as qr  # noqa: E402
+from damit_desktop import classify_receptors as cr  # noqa: E402
 from damit_desktop import layers  # noqa: E402
 from damit_desktop.algorithms import (  # noqa: E402
     ENV_VARS,
@@ -31,7 +33,7 @@ from damit_desktop.algorithms import (  # noqa: E402
     find_damit_cli,
     load_config,
 )
-from damit_desktop.handoff import handoff_ids, nid_problem  # noqa: E402
+from damit_desktop.handoff import handoff_ids, lonlat_to_5070, nid_problem  # noqa: E402
 from damit_desktop.profile import current, normalize, profile_scope  # noqa: E402
 from fakeproc import write_exe  # noqa: E402
 
@@ -71,8 +73,86 @@ if any(a.endswith(":classify") for a in args):
     print("ND_CLASS:\tHigh")
     print("TM11_CLASS:\tSignificant")
     print("REPORT_PDF:\t/tmp/report.pdf")
+    folder = next((a.split("=", 1)[1] for a in args if a.startswith("--DAM_FOLDER=")), "")
+    if folder:
+        print("OUTPUT_FOLDER:\t" + os.path.join(folder, "outputs"))
 sys.exit(0)
 """
+
+def _gp(wkb: bytes) -> bytes:
+    """A GeoPackage blob (no envelope, EPSG:5070) around a little-endian WKB geometry."""
+    return b"GP\x00\x01" + struct.pack("<i", 5070) + wkb
+
+
+def _xy(pts):
+    return [lonlat_to_5070(lon, lat) for lon, lat in pts]
+
+
+def nd_polygon(pts) -> bytes:
+    """A MultiPolygon of one ring, as ndhazard:classify writes Habitable_Structures (EPSG:5070)."""
+    ring = _xy(pts)
+    poly = struct.pack("<BII", 1, 3, 1) + struct.pack("<I", len(ring)) + b"".join(struct.pack("<dd", *p) for p in ring)
+    return _gp(struct.pack("<BII", 1, 6, 1) + poly)
+
+
+def nd_line(pts) -> bytes:
+    xy = _xy(pts)
+    return _gp(struct.pack("<BII", 1, 2, len(xy)) + b"".join(struct.pack("<dd", *p) for p in xy))
+
+
+#: Columns of ndhazard:classify 2.25.8's layers (a real Absaraka ND00199 run, 2026-11-22), the ones the desk reads.
+ND_LAYERS = {
+    "Habitable_Structures": ("Struct_ID integer, Address text, City text, Occupancy text, Habitable text, ACER_Type text, "
+                             "ACER_Zone_Label text, ND_Outcome text, Max_Depth_ft real, Max_Vel_fps real", "MULTIPOLYGON"),
+    "Roads_Inundated": ("Road_Name text, Road_Class text, AADT real, ND_Class text, ND_Basis text, Max_Depth_ft real, "
+                        "Max_Vel_fps real", "LINESTRING"),
+    "Rail_Inundated": ("Railroad text, Subdivision text, Passenger text, ND_Class text, ND_Basis text, Max_Depth_ft real, "
+                       "Max_Vel_fps real", "LINESTRING"),
+}
+HOUSE = [(-97.3578, 46.9555), (-97.3576, 46.9555), (-97.3576, 46.9556), (-97.3578, 46.9555)]
+
+
+def make_nd_layers(folder: Path, rail_basis: str = "22 trains/day >= 10 - probable loss of life") -> Path:
+    """<folder>/Habitable_Structures.gpkg, Roads_Inundated.gpkg, Rail_Inundated.gpkg in ndhazard:classify's layout."""
+    folder.mkdir(parents=True, exist_ok=True)
+    rows = {
+        "Habitable_Structures": [
+            (1086, None, None, "RES1-2SWB", "Yes", "House on foundation", "HIGH", "Probable loss of life", 6.1, 4.08,
+             nd_polygon(HOUSE)),
+            (778, "1341 MORNINGSIDE DR", "CASSELTON", "RES1-1SWB", "Yes", "Habitable", "JUDGMENT", "Judgment zone", 5.05,
+             1.2, nd_polygon(HOUSE)),
+            (2201, None, None, "", "Unverified", "House on foundation", "JUDGMENT", "Judgment zone", 4.79, 1.0,
+             nd_polygon(HOUSE)),
+            (5, None, None, "RES1", "Yes", "Habitable", "LOW", "Below consequence depth", 0.2, 0.1, nd_polygon(HOUSE)),
+            (1, "15854 36TH ST SE", "CASSELTON", "AGR1", "Yes", "Habitable", "DRY", "Not inundated", None, None,
+             nd_polygon(HOUSE)),
+        ],
+        "Roads_Inundated": [
+            ("LANGER AVE S", "State Highway", 3423.0, "High", "AADT 3,423 > 2,000 - probable loss of life", 2.29, 0.94,
+             nd_line([(-97.2120, 46.8968), (-97.2118, 46.8970)])),
+            ("6TH AVE S", "Local/County", None, "Medium",
+             "no AADT found - assumed Medium for a public road (verify traffic)", 1.6, 0.6,
+             nd_line([(-97.2, 46.89), (-97.19, 46.89)])),
+        ],
+        "Rail_Inundated": [
+            ("BNSF", "KO", "No", "High", rail_basis, 2.44, 3.29, nd_line([(-97.2170, 46.9000), (-97.2130, 46.9005)])),
+        ],
+    }
+    for table, (cols, gtype) in ND_LAYERS.items():
+        (folder / f"{table}.gpkg").unlink(missing_ok=True)  # a rerun writes the layers anew, as the plugin does
+        con = sqlite3.connect(folder / f"{table}.gpkg")
+        con.execute("create table gpkg_spatial_ref_sys (srs_id integer, organization text, organization_coordsys_id integer)")
+        con.execute("insert into gpkg_spatial_ref_sys values (5070, 'EPSG', 5070)")
+        con.execute("create table gpkg_contents (table_name text, data_type text, srs_id integer)")
+        con.execute("insert into gpkg_contents values (?, 'features', 5070)", (table,))
+        con.execute(f'create table "{table}" (fid integer primary key, {cols}, geom {gtype})')
+        n = len(rows[table][0])
+        names = [c.split()[0] for c in cols.split(", ")] + ["geom"]
+        con.executemany(f'insert into "{table}" ({", ".join(names)}) values ({", ".join("?" * n)})', rows[table])
+        con.commit()
+        con.close()
+    return folder / "Habitable_Structures.gpkg"
+
 
 DAM = {"nid": "ND00199", "name": "Absaraka", "heightFt": 20, "storageAcFt": 300, "statedDatum": "NAVD88",
        "method": "froehlich", "lon": -97.4, "lat": 46.99}
@@ -296,6 +376,32 @@ class RunTests(Base):
         self.assertEqual(result["suggestedClass"], "High")
         self.assertEqual(result["classification"]["tm11Class"], "Significant")
         self.assertEqual(result["classification"]["ordinal"], 3)  # hazard_class: High
+        # No receptor layer written (the fake writes none): the class still comes back, complete, with no GeoPackage.
+        self.assertTrue(result["classification"]["complete"])
+        self.assertNotIn("gpkg", result["classification"])
+        self.assertTrue(any("No receptor layer" in ln for ln in self.lines), self.lines)
+
+    def test_classify_reads_the_nd_receptor_layers_back(self):
+        dam = {**DAM, "depthRaster": self.depth()}
+        work = self.root / "work"
+        layers_dir = work / "dams" / "ND00199" / "outputs" / "Classification"
+        gpkg = make_nd_layers(layers_dir, rail_basis="22 trains/day >= 10 - probable loss of life - crossing on this "
+                                                     "line not confirmed")
+        with profile_scope("nd"):
+            result = qr.run_classify(dam, ANALYSIS, str(work), self.log)
+        self.assertTrue(result["ok"], self.lines)
+        c = result["classification"]
+        self.assertEqual(Path(c["gpkg"]).resolve(), gpkg.resolve())
+        self.assertEqual(result["gpkg"], c["gpkg"])
+        self.assertEqual(c["layers"], {"STRUCTURES": 5, "ROADS": 2, "RAIL": 1})
+        self.assertEqual(c["impacted"], {"STRUCTURES": 2, "ROADS": 2, "RAIL": 1})
+        self.assertEqual(c["wetStructures"], 4)
+        self.assertEqual(c["ruling"]["label"], "High")
+        self.assertEqual((c["ruling"]["hits"], c["ruling"]["unruled"]), (3, 1))
+        self.assertIn("crossing on this line not confirmed", c["ruling"]["why"][0])
+        self.assertEqual(c["hits"][0]["ordinal"], 3)
+        self.assertTrue(c["complete"])
+        self.assertTrue(any(ln.startswith("Receptors by class: ") for ln in self.lines), self.lines)
 
     def test_screening_runs_nddam_and_reads_the_dwr_name(self):
         work = self.root / "work"
@@ -345,6 +451,79 @@ class RunTests(Base):
         self.assertEqual([r["algorithm"] for r in result["check"]],
                          ["nddam:preflight", "nddam:runchain", "ndbreach:rundam", "ndhazard:classify"])
         self.assertTrue(any("North Dakota" in ln for ln in self.lines))
+
+
+
+class NdReceptorLayerTests(unittest.TestCase):
+    """classify_receptors reading ndhazard:classify's three layers (the US damit_hazard_receptors.gpkg is in
+    test_absaraka_ux.py and still passes unchanged)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.folder = self.root / "dams" / "ND00199" / "outputs" / "Classification"
+        self.gpkg = make_nd_layers(self.folder)
+        p = mock.patch.object(cr, "allowed_work_roots", lambda: [self.root])
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_reads_the_three_layers_strongest_first_with_names_and_lonlat(self):
+        out = cr.read_receptors(cr.gpkg_path(str(self.gpkg)))
+        self.assertEqual([r["rid"] for r in out["receptors"]],
+                         ["structure:1086", "rail:1", "road:1", "structure:778", "structure:2201", "road:2", "structure:5"])
+        by = {r["rid"]: r for r in out["receptors"]}
+        self.assertEqual((by["structure:1086"]["label"], by["structure:1086"]["ordinal"]), ("High", 3))
+        self.assertEqual(by["structure:1086"]["name"], "Structure 1086 · RES1-2SWB (single-family home)")
+        self.assertEqual(by["structure:778"]["name"], "1341 MORNINGSIDE DR CASSELTON · RES1-1SWB (single-family home)")
+        self.assertEqual((by["structure:778"]["label"], by["structure:778"]["advisory"]), ("Medium", False))
+        # Habitability unverified: not in the ND class until signed off, so advisory and flagged.
+        self.assertTrue(by["structure:2201"]["advisory"])
+        self.assertEqual(by["structure:2201"]["flags"], ["habitability_unverified"])
+        self.assertIsNone(by["structure:5"]["ordinal"])  # wet, below consequence depth
+        self.assertEqual(by["road:1"]["name"], "LANGER AVE S (AADT 3,423)")
+        self.assertEqual(by["road:2"]["flags"], ["aadt_assumed"])
+        self.assertEqual(by["rail:1"]["name"], "BNSF · subdivision KO")
+        # EPSG:5070 back to lon/lat (the map zooms to these).
+        lon, lat = by["structure:1086"]["at"]
+        self.assertAlmostEqual(lon, -97.3577, delta=2e-4)
+        self.assertAlmostEqual(lat, 46.9555, delta=2e-4)
+        w, s_, e, n = by["rail:1"]["bbox"]
+        self.assertAlmostEqual(w, -97.2170, places=5)
+        self.assertAlmostEqual(n, 46.9005, places=5)
+        self.assertEqual(out["counts"]["STRUCTURES"], {"total": 5, "wet": 4, "hit": 2})
+        self.assertEqual(out["counts"]["ROADS"], {"total": 2, "wet": 2, "hit": 2})
+        self.assertEqual(out["source"], "ndhazard:classify")
+        self.assertIsNone(out["ruling"])  # the High roads and rail rest on found values
+
+    def test_any_nd_layer_name_reads_all_three(self):
+        out = cr.read_receptors(cr.gpkg_path(str(self.folder / "Rail_Inundated.gpkg")))
+        self.assertEqual(set(out["counts"]), {"STRUCTURES", "ROADS", "RAIL"})
+        self.assertEqual(Path(out["gpkg"]), self.gpkg)
+
+    def test_needs_ruling_when_a_top_class_receptor_rests_on_an_unconfirmed_value(self):
+        make_nd_layers(self.folder, rail_basis="22 trains/day >= 10 - probable loss of life - crossing on this line "
+                                               "not confirmed")
+        g = cr.read_receptors(self.gpkg)["ruling"]
+        self.assertEqual((g["label"], g["hits"], g["unruled"]), ("High", 3, 1))
+        self.assertTrue(g["why"][0].startswith("1 rail stretch(es) at High: "))
+
+    def test_only_the_receptor_files_inside_the_work_folder(self):
+        with self.assertRaises(cr.ReceptorsError):
+            cr.gpkg_path(str(self.folder / "Access_Cut_Off.gpkg"))
+        with tempfile.TemporaryDirectory() as other:
+            outside = Path(other) / "Habitable_Structures.gpkg"
+            outside.write_bytes(self.gpkg.read_bytes())
+            with self.assertRaises(cr.ReceptorsError):
+                cr.gpkg_path(str(outside))
+        with self.assertRaisesRegex(cr.ReceptorsError, "ndhazard:classify"):
+            cr.gpkg_path(str(self.root / "Roads_Inundated.gpkg"))
+
+    def test_a_broken_nd_layer_is_a_message_not_a_crash(self):
+        (self.folder / "Roads_Inundated.gpkg").write_bytes(b"not sqlite at all" * 100)
+        with self.assertRaises(cr.ReceptorsError):
+            cr.read_receptors(self.gpkg)
+        self.assertEqual(cr.nd_summary(self.folder), {})
 
 
 if __name__ == "__main__":

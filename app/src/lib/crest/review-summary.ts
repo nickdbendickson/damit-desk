@@ -8,7 +8,10 @@ import { choiceText, classifyReceptors, hazardOrdinal, hazardStatus } from "./cl
 import { damChoice } from "./jurisdiction.ts";
 import type { Analysis, DamRecord, HazardHit, HazardResult } from "./types.ts";
 
-export const SUGGESTED_DISCLAIMER = "A suggested class from damit:classify: the engineer of record and the regulating agency make the determination.";
+/** The disclaimer under the class badge, naming the classify algorithm (damit:classify, or ndhazard:classify for ND). */
+export const suggestedDisclaimer = (alg = "damit:classify"): string =>
+  `A suggested class from ${alg}: the engineer of record and the regulating agency make the determination.`;
+export const SUGGESTED_DISCLAIMER = suggestedDisclaimer();
 
 export type ClassBadge = {
   state: "none" | "stale" | "partial" | "current";
@@ -20,10 +23,10 @@ export type ClassBadge = {
   jurisdiction: string;
 };
 
-export function classBadge(dam: DamRecord, result: Pick<Analysis, "flood">): ClassBadge {
+export function classBadge(dam: DamRecord, result: Pick<Analysis, "flood">, alg = "damit:classify"): ClassBadge {
   const st = hazardStatus(dam, result);
   const jurisdiction = choiceText(damChoice(dam));
-  if (st.state === "none") return { state: "none", text: "Not classified", note: "damit:classify has not run for this dam: Classify is on the Export & Hand-off tab.", ordinal: null, jurisdiction };
+  if (st.state === "none") return { state: "none", text: "Not classified", note: `${alg} has not run for this dam: Classify is on the Export & Hand-off tab.`, ordinal: null, jurisdiction };
   const r = st.result;
   if (st.state === "stale") return { state: "stale", text: "Out of date", note: `Last result ${r.suggestedClass}, not shown as the class: ${st.why}.`, ordinal: null, jurisdiction };
   const ord = hazardOrdinal(r);
@@ -42,7 +45,7 @@ const n = (v: number) => v.toLocaleString("en-US");
  * Peak discharge, then structures, roads and rail: the receptors the last classify actually sent (and how many it
  * scored a hit for), or, with no result, the receptors the desk would send now (marked so).
  */
-export function summaryTiles(dam: DamRecord, result: Pick<Analysis, "flood" | "breach">): Tile[] {
+export function summaryTiles(dam: DamRecord, result: Pick<Analysis, "flood" | "breach">, alg = "damit:classify"): Tile[] {
   const tiles: Tile[] = [
     { key: "peak", label: "Peak discharge", value: Number.isFinite(result.breach.peakCfs) ? `${n(Math.round(result.breach.peakCfs))} cfs` : "—", note: "desk breach hydrograph" },
   ];
@@ -57,7 +60,7 @@ export function summaryTiles(dam: DamRecord, result: Pick<Analysis, "flood" | "b
         key: k.toLowerCase(),
         label,
         value: n(sent),
-        note: `sent to damit:classify${hit != null ? `; ${n(hit)} ${k === "STRUCTURES" && r.wetStructures != null ? "wet" : "with a hit"}` : ""}${st.state === "stale" ? " (out of date)" : ""}`,
+        note: `${alg === "ndhazard:classify" ? "checked by" : "sent to"} ${alg}${hit != null ? `; ${n(hit)} ${k === "STRUCTURES" && r.wetStructures != null ? "wet" : "with a hit"}` : ""}${st.state === "stale" ? " (out of date)" : ""}`,
       });
     }
     return tiles;
