@@ -4,6 +4,7 @@
  * functions, no DOM: the component is src/components/crest/PaperReport.tsx.
  */
 import { csvCell } from "./csv.ts";
+import { classifyAlgorithm, receptorFilesText } from "./handoff.ts";
 import { num } from "./format.ts";
 import type { Analysis, HazardResult, SeriesPoint } from "./types.ts";
 import { datumFlags, floodFlags } from "./warnings.ts";
@@ -71,8 +72,9 @@ export type PaperMetric = { metric: string; value: string; note: string };
  * for this dam, the counts are the real receptors it judged (the structures, roads and rail it was sent, and how
  * many it found wet or impacted). Otherwise they are the desk's own receptors, said as such: never "mapped".
  */
-export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: HazardResult | null): PaperMetric[] {
+export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: HazardResult | null, profile: "us" | "nd" = "us"): PaperMetric[] {
   const sent = hazard?.layers ?? {};
+  const alg = classifyAlgorithm(profile, hazard);
   if (hazard && Object.keys(sent).length) {
     const sources = hazard.layerSources ?? {};
     const out: PaperMetric[] = [];
@@ -83,7 +85,7 @@ export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: Hazard
       out.push({
         metric: "Structures affected",
         value: wet == null ? `${n(nStructures)} checked` : `${n(wet)} of ${n(nStructures)} wet`,
-        note: `damit:classify, real structures${sources.STRUCTURES ? ` from ${sources.STRUCTURES}` : ""}`,
+        note: `${alg}, real structures${sources.STRUCTURES ? ` from ${sources.STRUCTURES}` : ""}`,
       });
     }
     for (const [layer, label] of [["ROADS", "Road segments impacted"], ["RAIL", "Rail segments impacted"]] as const) {
@@ -93,7 +95,7 @@ export function receptorMetrics(result: Pick<Analysis, "flood">, hazard?: Hazard
       out.push({
         metric: label,
         value: hit == null ? `${n(total)} checked` : `${n(hit)} of ${n(total)}`,
-        note: `damit:classify${sources[layer] ? `, ${sources[layer]}` : ""}`,
+        note: `${alg}${sources[layer] ? `, ${sources[layer]}` : ""}`,
       });
     }
     if (out.length) return out;
@@ -128,7 +130,12 @@ export function structureCounts(
 }
 
 /** The Report's receptor table heading and the note under it: which list it is, and where the other count lives. */
-export function receptorSection(result: Pick<Analysis, "flood">, hazard?: HazardResult | null): { title: string; note: string | null } {
+export function receptorSection(
+  result: Pick<Analysis, "flood">,
+  hazard?: HazardResult | null,
+  profile: "us" | "nd" = "us",
+): { title: string; note: string | null } {
+  const alg = classifyAlgorithm(profile, hazard);
   const c = structureCounts(result, hazard);
   const n = (v: number) => v.toLocaleString("en-US");
   const title = `Desk receptors: ${n(c.desk.wet)} of ${n(c.desk.total)} wet (911 address points and mapped structures)`;
@@ -136,7 +143,7 @@ export function receptorSection(result: Pick<Analysis, "flood">, hazard?: Hazard
   const wet = c.classify.wet == null ? `${n(c.classify.total)} checked` : `${n(c.classify.wet)} of ${n(c.classify.total)} wet`;
   return {
     title,
-    note: `This table is the desk's own receptor list. damit:classify judged the real structures (${wet}) for the class above; every one of them is in its report and GeoPackage (damit_hazard_receptors.gpkg).`,
+    note: `This table is the desk's own receptor list. ${alg} judged the real structures (${wet}) for the class above; every one of them is in its report and GeoPackage (${receptorFilesText(alg)}).`,
   };
 }
 

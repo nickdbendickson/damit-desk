@@ -4,8 +4,9 @@
  */
 import { blocks, RAIL_ITEMS_MAX, type CheckItem } from "@/lib/crest/checklist";
 import { STEPS } from "@/lib/crest/engine";
-import { pipelineProgress, screeningHold, STEP_DONE_RULE, type PipelineAnalysis } from "@/lib/crest/pipeline";
+import { pipelineProgress, screeningHold, stepDoneRule, type PipelineAnalysis } from "@/lib/crest/pipeline";
 import type { DamRecord, StepId } from "@/lib/crest/types";
+import { useClassifyAlg } from "./use-classify-alg";
 
 const KIND: Record<CheckItem["kind"], { glyph: string; cls: string; word: string }> = {
   missing: { glyph: "○", cls: "text-flag-red", word: "Missing" },
@@ -52,10 +53,11 @@ export function RailChecklist({ stepId, label, items, onFix }: { stepId: StepId;
 export function ProgressRing({ dam, analysis }: { dam: DamRecord; analysis: PipelineAnalysis }) {
   const p = pipelineProgress(dam, analysis);
   const hold = screeningHold(dam);
+  const classifyAlg = useClassifyAlg();
   const r = 15;
   const c = 2 * Math.PI * r;
   const open = p.steps.filter((s) => !s.done).map((s) => STEPS.find((x) => x.id === s.id)?.label ?? s.id);
-  const title = p.steps.map((s) => `${s.done ? "✓" : "○"} ${STEPS.find((x) => x.id === s.id)?.label}: ${STEP_DONE_RULE[s.id]}`).join("\n");
+  const title = p.steps.map((s) => `${s.done ? "✓" : "○"} ${STEPS.find((x) => x.id === s.id)?.label}: ${stepDoneRule(s.id, classifyAlg)}`).join("\n");
   return (
     <div className="flex items-center gap-3 rounded-md border border-line bg-card px-3 py-2" data-testid="progress-ring" title={title}>
       <svg

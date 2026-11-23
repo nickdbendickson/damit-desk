@@ -35,6 +35,38 @@ export const ND_ALGORITHMS: Record<keyof typeof DEFAULT_ALGORITHMS, string> = {
   finder: "ndfind:embankments",
 };
 
+/** The algorithm ids a profile shows before the server answers (profile.ts: "us" DamIT, "nd" DWR DamSafety). */
+export function algorithmsFor(profile: "us" | "nd"): Record<keyof typeof DEFAULT_ALGORITHMS, string> {
+  return profile === "nd" ? ND_ALGORITHMS : DEFAULT_ALGORITHMS;
+}
+
+/** ndhazard:classify's receptor layers (outputs/Classification), as classify_receptors.py ND_FILES. */
+export const ND_RECEPTOR_FILES = ["Habitable_Structures.gpkg", "Roads_Inundated.gpkg", "Rail_Inundated.gpkg"] as const;
+/** damit:classify's receptor GeoPackage. */
+export const DAMIT_RECEPTOR_FILE = "damit_hazard_receptors.gpkg";
+
+const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+/** The algorithm a stored classify result came from: its `source`, else read from its GeoPackage's name; null = unknown. */
+export function resultAlgorithm(r: { source?: string | null; gpkg?: string | null } | null | undefined): string | null {
+  if (!r) return null;
+  if (typeof r.source === "string" && r.source) return r.source;
+  const name = r.gpkg ? baseName(r.gpkg) : "";
+  if (name === DAMIT_RECEPTOR_FILE) return DEFAULT_ALGORITHMS.classify;
+  if ((ND_RECEPTOR_FILES as readonly string[]).includes(name)) return ND_ALGORITHMS.classify;
+  return null;
+}
+
+/** The classify algorithm to name: the one a result came from, else the active profile's. */
+export function classifyAlgorithm(profile: "us" | "nd", r?: { source?: string | null; gpkg?: string | null } | null): string {
+  return resultAlgorithm(r) ?? algorithmsFor(profile).classify;
+}
+
+/** The receptor GeoPackage file name(s) a result's algorithm writes, for the report's note. */
+export function receptorFilesText(alg: string): string {
+  return alg === ND_ALGORITHMS.classify ? `${ND_RECEPTOR_FILES.join(", ")} in outputs/Classification` : DAMIT_RECEPTOR_FILE;
+}
+
 /** Piping unless overtopping was chosen (Nick, 2026-11-05): a missing or unknown mode is never overtopping. */
 export function handoffFailureMode(mode: unknown): FailureMode {
   return mode === "overtopping" ? "overtopping" : "piping";

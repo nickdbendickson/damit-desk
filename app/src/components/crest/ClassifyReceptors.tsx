@@ -16,6 +16,7 @@ import {
 } from "@/lib/crest/classify-list";
 import { hazardStatus } from "@/lib/crest/classify-receptors";
 import { hasDesktopServer } from "@/lib/crest/desktop-server";
+import { useClassifyAlg } from "./use-classify-alg";
 import { useClassifyReceptors } from "./use-classify-receptors";
 import { useReceptorFocus } from "@/lib/crest/receptor-focus";
 import { useDesk } from "@/lib/crest/store";
@@ -36,6 +37,7 @@ const CHIPS: { id: LayerFilter; label: string }[] = [
  */
 export function ClassifyReceptorsPanel({ dam, result, where }: { dam: DamRecord; result: Pick<Analysis, "flood">; where: "dashboard" | "report" }) {
   const load = useClassifyReceptors(dam);
+  const alg = useClassifyAlg(dam.hazardResult);
   const st = useMemo(() => hazardStatus(dam, result), [dam, result]);
   const zoomTo = useReceptorFocus((s) => s.zoomTo);
   const focused = useReceptorFocus((s) => s.focus?.rid);
@@ -59,7 +61,7 @@ export function ClassifyReceptorsPanel({ dam, result, where }: { dam: DamRecord;
     <section className="classify-receptors rounded-md border border-line bg-card p-3" data-testid={tid} aria-labelledby={`${tid}-title`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h4 id={`${tid}-title`} className="text-sm font-medium">
-          Receptors damit:classify judged{st.state === "stale" ? " (out-of-date result)" : ""}
+          Receptors {alg} judged{st.state === "stale" ? " (out-of-date result)" : ""}
         </h4>
         {load.list ? <p className="text-xs text-muted" data-testid="classify-counts">{countsLine(load.list.counts)}</p> : null}
       </div>
@@ -92,12 +94,12 @@ export function ClassifyReceptorsPanel({ dam, result, where }: { dam: DamRecord;
             <input
               className="ml-auto rounded-sm border border-line bg-paper px-2 py-0.5 text-xs"
               placeholder="Search name, id or class…"
-              aria-label="Search the receptors damit:classify judged"
+              aria-label={`Search the receptors ${alg} judged`}
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <div className="mt-2 max-h-[22rem] overflow-auto rounded-sm border border-line" tabIndex={0} role="region" aria-label="Receptors damit:classify judged">
+          <div className="mt-2 max-h-[22rem] overflow-auto rounded-sm border border-line" tabIndex={0} role="region" aria-label={`Receptors ${alg} judged`}>
             <table className="sticky-first w-full border-collapse text-left text-xs" data-testid="classify-receptors-table">
               <thead className="sticky top-0 z-[1] bg-sand">
                 <tr>

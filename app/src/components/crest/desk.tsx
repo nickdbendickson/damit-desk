@@ -90,6 +90,7 @@ import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel, useNi
 import { NdDamPicker } from "./NdDamPicker";
 import { StructurePicker } from "./StructurePicker";
 import { useProfile, type DeskProfile } from "@/lib/crest/profile";
+import { useClassifyAlg } from "./use-classify-alg";
 import { ResultsStep } from "./ResultsStep";
 import { useAnalysisOfRecord, useResultsSync, useStripOfRecord } from "./results-flow";
 import { PaperReport } from "./PaperReport";
@@ -114,7 +115,7 @@ import { CommandPalette, type Command } from "./CommandPalette";
 import { DeskHeader, DeskStatusBar, DeskTabs } from "./DeskChrome";
 import { WorkflowMap } from "./WorkflowMap";
 import { parseRuling } from "@/lib/crest/classify-list";
-import { DESK_ACTIONS, isPaletteShortcut, shortcutLabel } from "@/lib/crest/commands";
+import { classifyActionLabel, DESK_ACTIONS, isPaletteShortcut, shortcutLabel } from "@/lib/crest/commands";
 import { jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJobStatus } from "@/lib/crest/job-status";
 import {
   firstOpenWorkflowStep,
@@ -369,6 +370,8 @@ export function Desk() {
   }, []);
 
   const jobBusy = useJobStatus((s) => s.busy);
+  // The palette names the classify algorithm this profile runs (ndhazard:classify under North Dakota).
+  const classifyAlg = useClassifyAlg();
   const [server, setServer] = useState(false);
   useEffect(() => setServer(hasDesktopServer()), []);
   const commands = useMemo<Command[]>(() => {
@@ -387,7 +390,7 @@ export function Desk() {
         const busyHint = jobBusy ? "a plugin job is running" : a.hint;
         switch (a.id) {
           case "classify":
-            return { ...a, hint: noServer ?? busyHint, disabled: !server || jobBusy, run: () => startJob("/api/classify") };
+            return { ...a, label: classifyActionLabel(classifyAlg), hint: noServer ?? busyHint, disabled: !server || jobBusy, run: () => startJob("/api/classify") };
           case "screening":
             return { ...a, hint: noServer ?? busyHint, disabled: !server || jobBusy, run: () => startJob("/api/screen") };
           case "import-run":
@@ -441,7 +444,7 @@ export function Desk() {
       })),
     ];
     return list;
-  }, [server, jobBusy, goTab, goStep, openRun, startJob, dam, recordAnalysis, step, dams, field, toggleField, add, select]);
+  }, [server, jobBusy, classifyAlg, goTab, goStep, openRun, startJob, dam, recordAnalysis, step, dams, field, toggleField, add, select]);
   const reviewFlags = useMemo(
     () => [...datumFlags(recordAnalysis), ...floodFlags(recordAnalysis)].filter((w) => w.severity !== "info").length,
     [recordAnalysis],
@@ -736,6 +739,7 @@ function LocationPanel({ dam }: { dam: DamRecord }) {
 }
 
 function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
+  const classifyAlg = useClassifyAlg();
   const update = useDesk((s) => s.update);
   const profile = useProfile((s) => s.profile);
   return (
@@ -828,8 +832,9 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           <span>
             New dam (proposed or not yet built)
             <span className="block text-xs text-muted">
-              Unticked = an existing dam. Sent to damit:classify as is_new; it changes the starting class (S6) and turns
-              on the new-dam proximity check (R6). A missing class of record does not make a dam new.
+              {classifyAlg === "damit:classify"
+                ? "Unticked = an existing dam. Sent to damit:classify as is_new; it changes the starting class (S6) and turns on the new-dam proximity check (R6). A missing class of record does not make a dam new."
+                : `Unticked = an existing dam. Written into dam.json as is_new; ${classifyAlg} does not take it. A missing class of record does not make a dam new.`}
             </span>
           </span>
         </label>
@@ -1809,7 +1814,9 @@ function ReportStep({ dam, result: deskResult }: { dam: DamRecord; result: Retur
  * The desk screen is shown under it only as a schematic preview (ND / ACER TM 11 desk rules), never as that class.
  */
 function HazardLead({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
-  const lead = useMemo(() => reportLead(dam, result), [dam, result]);
+  const profile = useProfile((s) => s.profile);
+  const classifyAlg = useClassifyAlg(dam.hazardResult);
+  const lead = useMemo(() => reportLead(dam, result, profile), [dam, result, profile]);
   const tone = lead.incomplete
     ? "border-2 border-amber bg-sand"
     : lead.kind === "hazard"
@@ -1834,7 +1841,7 @@ function HazardLead({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-xs text-muted">{screenAgainstChoice(result.screen.level, damChoice(dam))}</p>
+      <p className="mt-2 text-xs text-muted">{screenAgainstChoice(result.screen.level, damChoice(dam), classifyAlg)}</p>
     </div>
   );
 }
@@ -2074,6 +2081,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
                   layerSources: (c.layerSources as Record<string, string>) ?? {},
                   railTrainsLookup: str(c.railTrainsLookup),
                   ruling: parseRuling(c.ruling),
+                  source: str(c.source),
+                  tm11Class: str(c.tm11Class),
                   classifiedAt: new Date().toISOString(),
                   choiceKey: ran.choiceKey,
                   receptorKey: ran.receptorKey,
@@ -2520,7 +2529,8 @@ function StepRail({
 }) {
   // The checklist (2026-11-21): what holds each step, from missingForNext and the datum/flood flags of the desk
   // record, and the step-done rules of the record of analysis (the same rules as the marks and the status bar).
-  const checks = useMemo(() => stepChecklist(dam, desk, result), [dam, desk, result]);
+  const classifyAlg = useClassifyAlg();
+  const checks = useMemo(() => stepChecklist(dam, desk, result, classifyAlg), [dam, desk, result, classifyAlg]);
   return (
     <nav className="flex min-w-0 flex-col gap-0.5" aria-label="Pipeline" data-testid="step-rail">
       {STEPS.map((s, i) => {

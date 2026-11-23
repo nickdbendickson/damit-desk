@@ -5,9 +5,10 @@ import damitWordmark from "@/assets/damit-wordmark-light.png";
 import { currentDemSource, subscribeDemSource, type DemState } from "@/lib/crest/dem-source";
 import { hasDesktopServer } from "@/lib/crest/desktop-server";
 import { engineText, runText, useJobStatus } from "@/lib/crest/job-status";
-import { pipelineProgress, screeningHold, STEP_DONE_RULE, TABS, type PipelineAnalysis, type TabId } from "@/lib/crest/pipeline";
+import { pipelineProgress, screeningHold, stepDoneRule, TABS, type PipelineAnalysis, type TabId } from "@/lib/crest/pipeline";
 import { STEPS } from "@/lib/crest/engine";
 import type { DamRecord } from "@/lib/crest/types";
+import { useClassifyAlg } from "./use-classify-alg";
 
 const ABOUT =
   "One window for screening, a breach run and classification. Elevations, breach, and the map update as you edit. The flood model (LISFLOOD-FP, then ANUGA or HEC-RAS if chosen) runs through the DamIT plugins from the Export & Hand-off tab; the desk's own screen is not a model run, and nothing here assigns an official hazard class.";
@@ -199,11 +200,12 @@ export function DeskStatusBar({ dam, analysis }: { dam: DamRecord; analysis: Pip
   const engine = engineText(job, server);
   const prog = pipelineProgress(dam, analysis);
   const hold = screeningHold(dam);
+  const classifyAlg = useClassifyAlg();
   const ref = dam.resultsOfRecord;
   const crs = ref ? `${ref.crs} (${ref.label})` : "EPSG:4326 lon/lat (desk record)";
   const demText = !dem || dem.kind === "unavailable" ? "Terrain: USGS 3DEP" : dem.kind === "local" ? `DEM: ${baseName(dem.path)}` : "Terrain: USGS 3DEP";
   const tone = { ok: "text-flag-green", warn: "text-flag-amber", muted: "text-muted" }[engine.tone];
-  const rule = prog.steps.map((s) => `${s.done ? "✓" : "·"} ${STEPS.find((x) => x.id === s.id)?.label}: ${STEP_DONE_RULE[s.id]}`).join("\n");
+  const rule = prog.steps.map((s) => `${s.done ? "✓" : "·"} ${STEPS.find((x) => x.id === s.id)?.label}: ${stepDoneRule(s.id, classifyAlg)}`).join("\n");
   return (
     <footer
       className="sticky bottom-0 z-[1100] flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-card px-4 py-1 text-xs text-muted"

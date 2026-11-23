@@ -63,7 +63,7 @@ const TODO: Partial<Record<StepId, { text: string; target: string | null }>> = {
   flood: { text: "Build the terrain layer (or import a model run)", target: '[data-testid="outline-panel"] button:not(:disabled)' },
   results: { text: "No model run imported yet", target: '[data-testid="import-lisflood-files"]' },
   screen: { text: "The screen is held at Review", target: '[data-testid="screen-source"]' },
-  report: { text: "Not classified: run damit:classify", target: field("classify") },
+  report: { text: "Not classified: run Classify", target: field("classify") },
 };
 
 /**
@@ -76,7 +76,13 @@ const WAITS_ON: Partial<Record<StepId, { needs: string[]; text: string }>> = {
   breach: { needs: ["breach bottom"], text: "Needs the streambed (breach bottom)" },
 };
 
-export function stepChecklist(dam: DamRecord, desk: { datum: { warnings: string[]; flags?: Warning[] }; flood: { warnings: string[]; flags?: Warning[] } }, record: PipelineAnalysis): Record<StepId, CheckItem[]> {
+export function stepChecklist(
+  dam: DamRecord,
+  desk: { datum: { warnings: string[]; flags?: Warning[] }; flood: { warnings: string[]; flags?: Warning[] } },
+  record: PipelineAnalysis,
+  /** The classify algorithm to name in the Report to-do (the active profile's: damit:classify or ndhazard:classify). */
+  classifyAlg = "damit:classify",
+): Record<StepId, CheckItem[]> {
   const out: Record<StepId, CheckItem[]> = { setup: [], record: [], breach: [], flood: [], results: [], dashboard: [], screen: [], report: [] };
   for (const m of missingForNext(dam)) {
     const f = MISSING_FIELD[m] ?? { label: m, target: null };
@@ -110,7 +116,8 @@ export function stepChecklist(dam: DamRecord, desk: { datum: { warnings: string[
     if (id === "screen" && hold) continue; // the screening item above is the reason
     if (id === "flood" && !STEP_DONE.dashboard(dam, record))
       out.dashboard.push({ key: "todo-dashboard", step: "flood", kind: "todo", text: "Needs a flood layer (Flood step)", detail: "The Dashboard needs a flood layer: build it on the Flood step or import a model run.", target: todo.target });
-    out[id].push({ key: `todo-${id}`, step: id, kind: "todo", text: todo.text, detail: todo.text, target: todo.target });
+    const text = id === "report" ? `Not classified: run ${classifyAlg}` : todo.text;
+    out[id].push({ key: `todo-${id}`, step: id, kind: "todo", text, detail: text, target: todo.target });
   }
   return out;
 }

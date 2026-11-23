@@ -34,6 +34,7 @@ import { runKey, useResults } from "@/lib/crest/results-store";
 import type { Analysis, DamRecord, ResultSource } from "@/lib/crest/types";
 import type { DashPoint } from "./DashboardMap";
 import { ClassifyReceptorsPanel } from "./ClassifyReceptors";
+import { useClassifyAlg } from "./use-classify-alg";
 import { useClassifyReceptors } from "./use-classify-receptors";
 import { classColor } from "@/lib/crest/classify-list";
 import { useLegendOpen } from "@/lib/crest/legend-open";
@@ -132,6 +133,7 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
 
   // The real receptors damit:classify judged, as small dots by class (the table below lists them with names).
   const judged = useClassifyReceptors(dam);
+  const classifyAlg = useClassifyAlg(dam.hazardResult);
   const classifyPoints = useMemo<DashPoint[]>(
     () =>
       (judged.list?.receptors ?? [])
@@ -142,9 +144,9 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
           lon: r.at![0],
           lat: r.at![1],
           color: classColor(r.ordinal),
-          label: `${r.name}: ${r.label || "wet, no hit"}${r.depthFt != null ? ` · ${r.depthFt} ft` : ""} (damit:classify)`,
+          label: `${r.name}: ${r.label || "wet, no hit"}${r.depthFt != null ? ` · ${r.depthFt} ft` : ""} (${classifyAlg})`,
         })),
-    [judged.list],
+    [judged.list, classifyAlg],
   );
 
   // Compare with a Runner run: the imported LISFLOOD-FP (else DSS-WISE) max depth, when loaded in this session.
@@ -392,6 +394,7 @@ function KpiStack({ dam, result }: { dam: DamRecord; result: Analysis }) {
   // for these receptors, the real structures it judged.
   const current = hazardStatus(dam, result).state === "current" ? dam.hazardResult : null;
   const counts = structureCounts(result, current);
+  const classifyAlg = useClassifyAlg(dam.hazardResult);
   const n = (v: number) => v.toLocaleString("en-US");
   const cards = [
     {
@@ -402,7 +405,7 @@ function KpiStack({ dam, result }: { dam: DamRecord; result: Analysis }) {
     { l: "Max depth", v: `${num(result.flood.maxDepthFt, 1)} ft`, warn: false },
     { l: "Desk receptors flooded (911 / mapped)", v: `${counts.desk.wet} of ${counts.desk.total}`, warn: false },
     ...(counts.classify
-      ? [{ l: "Structures wet (damit:classify)", v: counts.classify.wet == null ? `${n(counts.classify.total)} checked` : `${n(counts.classify.wet)} of ${n(counts.classify.total)}`, warn: false }]
+      ? [{ l: `Structures wet (${classifyAlg})`, v: counts.classify.wet == null ? `${n(counts.classify.total)} checked` : `${n(counts.classify.wet)} of ${n(counts.classify.total)}`, warn: false }]
       : []),
     { l: "Inundated area", v: `${num(result.flood.acres, 0)} ac`, warn: false },
   ];
