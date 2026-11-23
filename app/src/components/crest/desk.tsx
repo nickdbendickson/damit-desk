@@ -86,7 +86,8 @@ import type {
 import { damChoice, screenAgainstChoice } from "@/lib/crest/jurisdiction";
 import { HydroChart, ValleyMap } from "./charts";
 import { useOnline } from "./use-online";
-import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel, useNidData } from "./NidDamPicker";
+import { AboutData, FieldTag, NidDamPicker, NidHazardLine, NidRecordPanel } from "./NidDamPicker";
+import { useNidData } from "@/lib/crest/use-nid-data";
 import { NdDamPicker } from "./NdDamPicker";
 import { StructurePicker } from "./StructurePicker";
 import { useProfile, type DeskProfile } from "@/lib/crest/profile";
