@@ -1,5 +1,5 @@
 import { Fragment, lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 
 import { analyze, crestNavdLabel, INPUT_RANGE, inputRangeWarning, STEPS } from "@/lib/crest/engine";
 import { datumFlags, floodFlags, warningKey, type Warning } from "@/lib/crest/warnings";
@@ -68,7 +68,7 @@ import { layerOfRecord } from "@/lib/crest/layer-of-record";
 import { CONFIDENCE_LABEL, triageDam } from "@/lib/crest/triage";
 import { num } from "@/lib/crest/format";
 import { saveText } from "@/lib/crest/save";
-import { demTieOffer, missingForNext, needsDemTie } from "@/lib/crest/nid-dams";
+import { demTieOffer, DESK_SAMPLE_IDS, missingForNext, needsDemTie } from "@/lib/crest/nid-dams";
 import { onOutlineSaveChange, outlineSaveError } from "@/lib/crest/outline-store";
 import { activeDam, hydrateDesk, useDesk, useSaveStatus } from "@/lib/crest/store";
 import { DeskFiles } from "./DeskFiles";
@@ -117,7 +117,7 @@ import { DeskHeader, DeskStatusBar, DeskTabs } from "./DeskChrome";
 import { WorkflowMap } from "./WorkflowMap";
 import { parseRuling } from "@/lib/crest/classify-list";
 import { classifyActionLabel, DESK_ACTIONS, isPaletteShortcut, shortcutLabel } from "@/lib/crest/commands";
-import { jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJobStatus } from "@/lib/crest/job-status";
+import { JOB_LABEL, jobFinished, jobNoServer, jobStarted, requestJob, setJobStarter, useJobStatus } from "@/lib/crest/job-status";
 import {
   firstOpenWorkflowStep,
   railState,
@@ -283,6 +283,10 @@ export function Desk() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [field, toggleField] = useFieldMode();
   const [mapOpen, toggleMap] = useMapOpen();
+  // On narrow windows the step list is folded so the step's form and map are not pushed off the bottom; the toggle
+  // opens it as a drawer. On wide windows (xl and up) the list always shows beside the content (DamIT Desk UI review
+  // 2026-11-25).
+  const [railOpen, setRailOpen] = useState(false);
   // What "Open in desk" did (selected an existing record or added one), shown once over the desk.
   const [openNote, setOpenNote] = useState<string | null>(null);
   const saveBlocked = useSaveStatus((s) => s.blocked);
@@ -520,7 +524,14 @@ export function Desk() {
                       (on ? "bg-water text-card" : "text-ink hover:bg-sand")
                     }
                   >
-                    <span className="block font-medium">{d.name}</span>
+                    <span className="block font-medium">
+                      {d.name}
+                      {DESK_SAMPLE_IDS.has(String(d.nid ?? "").trim().toUpperCase()) ? (
+                        <span className={"ml-1.5 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-semibold " + (on ? "bg-card/25 text-card" : "bg-sand text-muted")}>
+                          Sample
+                        </span>
+                      ) : null}
+                    </span>
                     <span className={on ? "text-card/80" : "text-muted"}>{d.nid}</span>
                   </button>
                 </li>
@@ -550,6 +561,7 @@ export function Desk() {
               </button>
             </p>
           ) : null}
+          <GettingStarted server={server} onCheck={() => startJob("/api/check")} />
           {/* Map-centric redesign (matches Damit Crest PR #148): the workflow moves from a horizontal
               tab strip to a persistent three-pane layout — pipeline rail left, step content centre,
               inspector right. The old tab nav is retired; states show prerequisite problems before
@@ -569,7 +581,20 @@ export function Desk() {
             <div className="min-w-0 flex flex-col gap-3 xl:order-1">
               <SituationStrip dam={dam} result={result} />
               <ProgressRing dam={dam} analysis={recordAnalysis} />
-              <StepRail dam={dam} result={recordAnalysis} desk={result} step={step} setStep={setStep} onFix={fixItem} />
+              <button
+                type="button"
+                className="flex h-10 items-center justify-between rounded-sm border border-line bg-card px-3 text-sm text-ink xl:hidden"
+                aria-expanded={railOpen}
+                aria-controls="step-rail"
+                onClick={() => setRailOpen((o) => !o)}
+                data-testid="rail-toggle"
+              >
+                <span>{railOpen ? "Hide steps" : "Show all steps"}</span>
+                <ChevronDown className={"size-4 transition-transform " + (railOpen ? "rotate-180" : "")} aria-hidden="true" />
+              </button>
+              <div id="step-rail" className={(railOpen ? "" : "hidden ") + "xl:block"}>
+                <StepRail dam={dam} result={recordAnalysis} desk={result} step={step} setStep={setStep} onFix={fixItem} />
+              </div>
             </div>
             <div className="min-w-0 flex flex-col gap-4 xl:order-2" id="step-content" tabIndex={-1}>
           {/* Guided setup and Flood draw on their own map; the other Workflow steps lead with the flood map. */}
@@ -766,7 +791,7 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
           </div>
         ) : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <TextField label="Name" value={dam.name} onChange={(name) => update({ name })} tag={<FieldTag dam={dam} field="name" />} />
+          <TextField label="Name" className="sm:col-span-2" value={dam.name} onChange={(name) => update({ name })} tag={<FieldTag dam={dam} field="name" />} />
           <TextField label="NID" value={dam.nid} onChange={(nid) => update({ nid })} tag={<FieldTag dam={dam} field="nid" />} />
           <TextField label="County" value={dam.county} onChange={(county) => update({ county })} tag={<FieldTag dam={dam} field="county" />} />
           <NumField label="Year" value={dam.year} onChange={(year) => update({ year })} tag={<FieldTag dam={dam} field="year" />} />
@@ -834,8 +859,8 @@ function RecordStep({ dam, result }: { dam: DamRecord; result: ReturnType<typeof
             New dam (proposed or not yet built)
             <span className="block text-xs text-muted">
               {classifyAlg === "damit:classify"
-                ? "Unticked = an existing dam. Sent to damit:classify as is_new; it changes the starting class (S6) and turns on the new-dam proximity check (R6). A missing class of record does not make a dam new."
-                : `Unticked = an existing dam. Written into dam.json as is_new; ${classifyAlg} does not take it. A missing class of record does not make a dam new.`}
+                ? "Tick only for a dam that is proposed or not yet built. New dams start one class higher and are judged more strictly near homes. Leaving it unticked treats the dam as existing. A dam with no class of record is not automatically new."
+                : "Tick only for a dam that is proposed or not yet built. Leaving it unticked treats the dam as existing. A dam with no class of record is not automatically new."}
             </span>
           </span>
         </label>
@@ -1869,6 +1894,11 @@ const handoff = {
   warning: "",
   busy: false,
   job: "",
+  /** The running job's plain label and when it started (ms), for the elapsed-time line. */
+  label: "",
+  startedAt: 0,
+  /** The last finished job, for the banner at the top of the panel: null until one finishes. */
+  done: null as { label: string; ok: boolean; cancelled: boolean; partial: boolean; secs: number } | null,
 };
 let handoffTimer = 0;
 
@@ -1999,6 +2029,9 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       handoff.busy = true;
       handoff.log = "Starting…\n";
       handoff.warning = "";
+      handoff.label = JOB_LABEL[path] ?? path;
+      handoff.startedAt = Date.now();
+      handoff.done = null;
       jobStarted(path);
       bump((n) => n + 1);
       // Classify: the downstream receptors (and drawn area) go to damit:classify, so the chosen preset or custom
@@ -2096,6 +2129,13 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
               handoffTimer = 0;
               handoff.busy = false;
               handoff.job = "";
+              handoff.done = {
+                label: handoff.label || (JOB_LABEL[path] ?? path),
+                ok: Boolean(found.ok),
+                cancelled: Boolean(found.cancelled),
+                partial: Boolean(found.partial),
+                secs: Math.round((Date.now() - handoff.startedAt) / 1000),
+              };
               jobFinished(path, found);
               bump((n) => n + 1);
             }
@@ -2104,7 +2144,8 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
             handoffTimer = 0;
             handoff.busy = false;
             handoff.job = "";
-            handoff.log = "Lost the job log.";
+            handoff.log = `${handoff.log}\n\nThe desk lost contact with the running job, so its log stops here. The model may still be running in QGIS — check the terminal window. Start the job again if it has stopped.`;
+            handoff.done = { label: handoff.label || (JOB_LABEL[path] ?? path), ok: false, cancelled: false, partial: false, secs: Math.round((Date.now() - handoff.startedAt) / 1000) };
             jobFinished(path, null);
             bump((n) => n + 1);
           }
@@ -2124,6 +2165,9 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
 
   const cancel = useCallback(async () => {
     if (!handoff.job) return;
+    // A stray click should not throw away a long run: confirm once it has gone past two minutes.
+    const mins = Math.floor((Date.now() - handoff.startedAt) / 60000);
+    if (mins >= 2 && typeof window !== "undefined" && !window.confirm(`Stop ${handoff.label || "this run"}? It has been running for ${mins} minute${mins === 1 ? "" : "s"} and the work so far will be lost.`)) return;
     try {
       await fetch(`/api/cancel?id=${handoff.job}`, { method: "POST", headers: crestApiHeaders() });
     } catch {
@@ -2136,21 +2180,25 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
     "inline-flex h-10 items-center rounded-sm border border-water bg-water px-3 text-sm text-card disabled:cursor-not-allowed disabled:opacity-50";
   return (
     <div className="scroll-mt-4 rounded-md border border-line bg-card p-4" id="handoff-panel" data-testid="handoff-panel">
-      <h3 className="text-lg">DamIT plugins in QGIS</h3>
+      <h3 className="text-lg">Run the DamIT plugins in QGIS</h3>
       <p className="mt-1 text-sm text-muted">
-        Writes the dam folder the DamIT plugins read, including the LISFLOOD package and the flood strip. Get layers
-        downloads a DEM and streams for this area (USGS, United States), or uses the DamIT data folder (DAMIT_DATA).
-        Screening runs {algs.preflight} and starts {algs.runchain} only if the preflight is READY. Classify hands the
-        folder, the jurisdiction choice, the model run&apos;s depth raster and the downstream receptors to {algs.classify}:
-        the real structures, roads and rail lines for the depth raster&apos;s area (the DamIT data folder, else USACE NSI,
-        FHWA HPMS and the national rail network online) plus the receptors you mapped. A layer it cannot check makes the
-        class INCOMPLETE, shown as a lower bound. The flood model runs {algs.rundam} for this dam only. A missing
-        algorithm, a missing DEM or depth raster, or a preflight FAIL stops there. Check QGIS hand-off tests the link to
-        the plugins first, without running a dam. The log shows the plugin&apos;s output as it runs. Cancel stops QGIS
-        and what it started, for every button; DAMIT_SCREENING_TIMEOUT_S limits screening and DAMIT_PLUGIN_TIMEOUT_S the
-        Download layers, Atlas 14 and Find fills buttons (3 h, 15 min, 2 h by default). The result is a suggested class,
-        not an official one.
+        This writes the dam folder, runs the flood model, then classifies the dam. The buttons below do each part. Start
+        with <b>Check QGIS hand-off</b> to confirm the plugins are found, then <b>Write folder and run screening</b> and{" "}
+        <b>Run the flood model</b>, and finally <b>Classify</b>. The result is a suggested class, not an official one.
       </p>
+      <details className="mt-1 text-sm text-muted" data-testid="handoff-intro-more">
+        <summary className="cursor-pointer">How each step works…</summary>
+        <p className="mt-1">
+          Get layers downloads a DEM and streams for this area (USGS, United States), or uses the DamIT data folder.
+          Screening runs {algs.preflight} and starts {algs.runchain} only if the preflight is READY. Classify hands the
+          folder, the jurisdiction choice, the model run&apos;s depth raster and the downstream receptors to {algs.classify}:
+          the real structures, roads and rail lines for the depth raster&apos;s area (the DamIT data folder, else USACE NSI,
+          FHWA HPMS and the national rail network online) plus the receptors you mapped. A layer it cannot check makes the
+          class a lower bound. The flood model runs {algs.rundam} for this dam only. A missing algorithm, a missing DEM or
+          depth raster, or a preflight FAIL stops there. Check QGIS hand-off tests the link to the plugins without running
+          a dam. The log shows the plugin&apos;s output as it runs. Cancel stops QGIS and what it started.
+        </p>
+      </details>
       <p className="mt-1 text-xs text-muted" data-testid="handoff-algorithms">
         Algorithms: {Object.entries(algs)
           .filter(([, id]) => id)
@@ -2219,79 +2267,6 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           />
         </label>
         <label className="text-xs text-muted">
-          Velocity raster (Classify, optional) <ChooseFile what="the velocity raster" onPick={(p) => ((handoff.velocity = p), bump((n) => n + 1))} />
-          <input
-            className={field}
-            value={handoff.velocity}
-            placeholder="blank = none"
-            onChange={(e) => {
-              handoff.velocity = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
-          Depth × velocity raster (Classify, optional)
-          <input
-            className={field}
-            value={handoff.dv}
-            placeholder="blank = none"
-            onChange={(e) => {
-              handoff.dv = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
-          Water-surface elevation raster (Classify, optional)
-          <input
-            className={field}
-            value={handoff.wse}
-            placeholder="blank = none"
-            onChange={(e) => {
-              handoff.wse = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
-          Non-breach depth raster (Classify, optional)
-          <input
-            className={field}
-            value={handoff.nonbreach}
-            placeholder="blank = none"
-            onChange={(e) => {
-              handoff.nonbreach = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
-          Arrival time raster (hours) (Classify, optional) <ChooseFile what="the arrival raster" onPick={(p) => ((handoff.arrival = p), bump((n) => n + 1))} />
-          <input
-            className={field}
-            value={handoff.arrival}
-            placeholder="blank = none"
-            onChange={(e) => {
-              handoff.arrival = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
-          Rail trains-per-day lookup (Classify, optional CSV){" "}
-          <ChooseFile what="the rail trains-per-day lookup (CSV)" mode="csv" onPick={(p) => ((handoff.railLookup = p), bump((n) => n + 1))} />
-          <input
-            className={field}
-            value={handoff.railLookup}
-            placeholder="blank = none: an impacted rail line can only reach Medium"
-            onChange={(e) => {
-              handoff.railLookup = e.target.value;
-              bump((n) => n + 1);
-            }}
-          />
-        </label>
-        <label className="text-xs text-muted">
           Flood model
           <select
             className={field}
@@ -2322,6 +2297,88 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
           </select>
         </label>
       </div>
+      <details className="mt-3" data-testid="handoff-advanced">
+        <summary className="cursor-pointer text-sm text-water">Advanced: use my own model output</summary>
+        <p className="mt-1 text-xs text-muted">
+          Only needed when you already have model grids on disk and want Classify to use them instead of the run above.
+          Leave every box blank to use the flood model&apos;s own output.
+        </p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs text-muted">
+            Velocity raster <ChooseFile what="the velocity raster" onPick={(p) => ((handoff.velocity = p), bump((n) => n + 1))} />
+            <input
+              className={field}
+              value={handoff.velocity}
+              placeholder="blank = none"
+              onChange={(e) => {
+                handoff.velocity = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            Depth × velocity raster
+            <input
+              className={field}
+              value={handoff.dv}
+              placeholder="blank = none"
+              onChange={(e) => {
+                handoff.dv = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            Water-surface elevation raster
+            <input
+              className={field}
+              value={handoff.wse}
+              placeholder="blank = none"
+              onChange={(e) => {
+                handoff.wse = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            Non-breach depth raster
+            <input
+              className={field}
+              value={handoff.nonbreach}
+              placeholder="blank = none"
+              onChange={(e) => {
+                handoff.nonbreach = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            Arrival time raster (hours) <ChooseFile what="the arrival raster" onPick={(p) => ((handoff.arrival = p), bump((n) => n + 1))} />
+            <input
+              className={field}
+              value={handoff.arrival}
+              placeholder="blank = none"
+              onChange={(e) => {
+                handoff.arrival = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            Rail trains-per-day lookup (CSV){" "}
+            <ChooseFile what="the rail trains-per-day lookup (CSV)" mode="csv" onPick={(p) => ((handoff.railLookup = p), bump((n) => n + 1))} />
+            <input
+              className={field}
+              value={handoff.railLookup}
+              placeholder="blank = none: an impacted rail line can only reach Medium"
+              onChange={(e) => {
+                handoff.railLookup = e.target.value;
+                bump((n) => n + 1);
+              }}
+            />
+          </label>
+        </div>
+      </details>
       <div className="mt-3 flex flex-wrap gap-2" data-testid="handoff-actions">
         <button
           type="button"
@@ -2379,6 +2436,38 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
       </p>
       </details>
       <ExportsFolder />
+      {handoff.busy ? (
+        <p className="mt-3 flex items-center gap-2 rounded-sm border border-water bg-water/10 p-2 text-sm text-ink" role="status" data-testid="handoff-running">
+          <span className="inline-block size-2 animate-pulse rounded-full bg-water" aria-hidden="true" />
+          Running {handoff.label || "a plugin job"} — {elapsedText(handoff.startedAt)} so far. You can switch dams or close this window; the run keeps going in QGIS.
+        </p>
+      ) : handoff.done ? (
+        <p
+          className={
+            "mt-3 flex items-start justify-between gap-2 rounded-sm border p-2 text-sm " +
+            (handoff.done.cancelled
+              ? "border-line bg-sand text-ink"
+              : handoff.done.ok || handoff.done.partial
+                ? "border-flag-green bg-card text-ink"
+                : "border-flag-red bg-red-bg text-ink")
+          }
+          role="status"
+          data-testid="handoff-done"
+        >
+          <span>
+            {handoff.done.cancelled
+              ? `${handoff.done.label} cancelled after ${elapsedText(0, handoff.done.secs)}.`
+              : handoff.done.partial
+                ? `${handoff.done.label} finished with a partial result after ${elapsedText(0, handoff.done.secs)}.`
+                : handoff.done.ok
+                  ? `${handoff.done.label} finished in ${elapsedText(0, handoff.done.secs)}.`
+                  : `${handoff.done.label} stopped after ${elapsedText(0, handoff.done.secs)}. See the log below.`}
+          </span>
+          <button type="button" className="shrink-0 text-muted underline" onClick={() => ((handoff.done = null), bump((n) => n + 1))} aria-label="Dismiss">
+            Dismiss
+          </button>
+        </p>
+      ) : null}
       {handoff.warning ? (
         <p className="mt-2 rounded-sm border border-amber bg-amber/10 p-2 text-sm text-ink" role="status" data-testid="screening-partial">
           {handoff.warning}
@@ -2437,6 +2526,14 @@ function ExportsFolder() {
 }
 
 /** The job log, kept scrolled to the newest line while a plugin runs (the server streams its output). */
+/** A short elapsed time: from `startedAt` (ms), or from `secs` when `startedAt` is 0. */
+function elapsedText(startedAt: number, secs?: number): string {
+  const s = secs != null ? secs : Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${String(s % 60).padStart(2, "0")} s`;
+}
+
 function LiveLog({ text, busy }: { text: string; busy: boolean }) {
   const ref = useRef<HTMLPreElement | null>(null);
   useEffect(() => {
@@ -2572,6 +2669,79 @@ function StepRail({
 
 /** The persistent situation strip: the dam's key facts stay legible while the user works on any
  * step, the way RAS Mapper keeps the map present behind every pane. */
+const GETTING_STARTED_KEY = "damit-desk-getting-started-dismissed";
+
+/**
+ * A plain-language "Getting started" card shown on first open (DamIT Desk UI review 2026-11-25): what the desk needs
+ * to run models, with a one-click hand-off check. It hides itself once the check passes, or when the person dismisses
+ * it, and stays hidden after that (a flag in this browser). In a browser page with no desk server it explains that
+ * models need the desktop app.
+ */
+function GettingStarted({ server, onCheck }: { server: boolean; onCheck: () => void }) {
+  const check = useJobStatus((s) => s.check);
+  const busy = useJobStatus((s) => s.busy);
+  const [dismissed, setDismissed] = useState(true);
+  useEffect(() => {
+    try {
+      setDismissed(localStorage.getItem(GETTING_STARTED_KEY) === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, []);
+  const dismiss = () => {
+    try {
+      localStorage.setItem(GETTING_STARTED_KEY, "1");
+    } catch {
+      /* a private window keeps it for this session only */
+    }
+    setDismissed(true);
+  };
+  // Hide it once everything is in place (a passing hand-off check), or once the person closes it.
+  if (dismissed || (server && check?.ok)) return null;
+  return (
+    <section className="mb-3 rounded-md border border-water bg-water/5 p-4" aria-label="Getting started" data-testid="getting-started">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-lg">Getting started</h2>
+        <button type="button" className="shrink-0 text-sm text-muted underline" onClick={dismiss} data-testid="getting-started-dismiss">
+          Dismiss
+        </button>
+      </div>
+      {!server ? (
+        <p className="mt-2 text-sm text-ink">
+          You&rsquo;re viewing the desk in a browser, so it cannot reach QGIS on this computer. To run the flood model
+          and classify, open <b>DamIT Desk</b> from its icon (or run <code>bin/damit-desk</code>). You can still enter
+          dams and see the schematic estimate here.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-ink">Three things make the Run buttons work. The desk does the rest.</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-ink">
+            <li>Install QGIS and the DamIT plugins once, with the suite installer (no admin rights needed).</li>
+            <li>A terrain source: 3DEP downloads automatically in the United States, or choose a local DEM on the Flood step.</li>
+            <li>Press <b>Check QGIS hand-off</b> below to confirm the plugins are found.</li>
+          </ol>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={onCheck}
+              disabled={busy}
+              className="inline-flex h-10 items-center rounded-sm border border-water bg-water px-4 text-sm font-semibold text-card disabled:opacity-50"
+              data-testid="getting-started-check"
+            >
+              {busy ? "Checking…" : "Check QGIS hand-off"}
+            </button>
+            {check && !check.ok ? (
+              <span className="text-sm text-flag-amber" data-testid="getting-started-result">
+                {check.total === 0 ? "qgis_process not found — install QGIS and the DamIT plugins." : `${check.missing.length} plugin(s) not found: ${check.missing.join(", ")}.`}
+              </span>
+            ) : null}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function SituationStrip({ dam, result }: { dam: DamRecord; result: ReturnType<typeof analyze> }) {
   const peak = result.breach.series.length ? Math.max(...result.breach.series.map((p) => p.qCfs)) : null;
   // Fresh install test 2026-11-21: the strip sat in the 210 px left rail of the three-pane layout but switched to four
@@ -2584,7 +2754,7 @@ function SituationStrip({ dam, result }: { dam: DamRecord; result: ReturnType<ty
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 @md:grid-cols-4">
         <div className={cell}>
           <p className={label}>Dam</p>
-          <p className="truncate font-medium" title={dam.name}>
+          <p className="font-medium [overflow-wrap:anywhere]" title={dam.name}>
             {dam.name}
           </p>
         </div>
@@ -2615,7 +2785,7 @@ function InspectorPanel({ dam, result, step }: { dam: DamRecord; result: ReturnT
     <aside className="flex min-w-0 flex-col gap-4" aria-label="Inspector" data-testid="inspector-panel">
       <div>
         <h2 className="text-base font-semibold">Validation</h2>
-        <p className="text-xs text-muted">Live checks from the analysis; a stop holds the screen at Review, exactly as before.</p>
+        <p className="text-xs text-muted">Checks on this dam&rsquo;s numbers. A stop item must be fixed before the Report.</p>
       </div>
       {stops.length === 0 && others.length === 0 ? (
         <p className="rounded-md border border-line bg-green-bg px-3 py-2 text-sm text-flag-green" data-testid="inspector-clear">
@@ -2658,7 +2828,9 @@ function InspectorPanel({ dam, result, step }: { dam: DamRecord; result: ReturnT
 function StepNav({ step, setStep, blocked }: { step: StepId; setStep: (s: StepId) => void; blocked: string[] }) {
   const i = STEPS.findIndex((s) => s.id === step);
   const prev = i > 0 ? STEPS[i - 1] : null;
-  const next = i >= 0 && i < STEPS.length - 1 ? STEPS[i + 1] : null;
+  // Guided setup already covers Record, Breach and the terrain, so "Next" there skips to Flood rather than looping
+  // back to the Record step (which read as the confusing "Next: Record").
+  const next = step === "setup" ? (STEPS.find((s) => s.id === "flood") ?? null) : i >= 0 && i < STEPS.length - 1 ? STEPS[i + 1] : null;
   const btn = "inline-flex h-11 items-center gap-1 rounded-sm border px-4 text-sm";
   return (
     <nav className="mt-6 flex items-center justify-between gap-3" aria-label="Step navigation">
@@ -2929,14 +3101,16 @@ function TextField({
   value,
   onChange,
   tag,
+  className,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   tag?: ReactNode;
+  className?: string;
 }) {
   return (
-    <label className="block text-sm">
+    <label className={"block text-sm " + (className ?? "")}>
       <span className="text-muted">{label}</span>
       <input
         value={value}

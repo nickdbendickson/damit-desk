@@ -22,6 +22,26 @@ use this computer (layers, dam folder, screening, model, classify) are
 refused. Use the window. If you closed the browser tab or the link
 expired, stop the desk (Ctrl+C) and start it again.
 
+Desktop icons instead of the terminal
+--------------------------------------
+Run bin/install-launcher (Mac, Linux) or bin/install-launcher.ps1
+(Windows) once. It makes two icons you can double-click, with no terminal:
+  DamIT Desk                 (United States profile)
+  DamIT Desk (North Dakota)  (North Dakota profile)
+On Mac they land in ~/Applications; on Linux in your applications menu;
+on Windows in the Start menu. The first launch still makes a small
+virtualenv (Mac, Windows), so give it a few seconds.
+
+First run, by platform
+----------------------
+- Python: the desk needs python3 (3.10+). A fresh Mac may ask to install
+  the Command Line Tools the first time you run python3 — accept it.
+  Windows needs the python.org installer so that "py -3" works.
+- Unsigned Mac app: the app is not yet signed with an Apple Developer ID,
+  so the first open may say it "cannot be opened". Right-click the app,
+  choose Open, then Open again; or allow it under System Settings >
+  Privacy & Security > Open Anyway. You only do this once.
+
 Report step — DamIT plugins in QGIS
 -----------------------------------
 These buttons need QGIS (3.28 to 4.x) and the DamIT plugins installed.

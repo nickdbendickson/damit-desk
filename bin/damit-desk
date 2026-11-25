@@ -16,7 +16,8 @@ case "$(uname -s)" in
     if [ ! -x "$VENV/bin/python" ]; then
       "$PY" -m venv "$VENV"
     fi
-    "$VENV/bin/python" -m pip install -q 'pywebview>=5.0,<7'
+    # Install pywebview only when it is not already there, so a normal launch is fast and works offline.
+    "$VENV/bin/python" -c 'import webview' 2>/dev/null || "$VENV/bin/python" -m pip install -q 'pywebview>=5.0,<7'
     RUN="$VENV/bin/python"
     ;;
   *)

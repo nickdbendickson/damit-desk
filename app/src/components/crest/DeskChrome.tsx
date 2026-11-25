@@ -7,8 +7,12 @@ import { hasDesktopServer } from "@/lib/crest/desktop-server";
 import { engineText, runText, useJobStatus } from "@/lib/crest/job-status";
 import { pipelineProgress, screeningHold, stepDoneRule, TABS, type PipelineAnalysis, type TabId } from "@/lib/crest/pipeline";
 import { STEPS } from "@/lib/crest/engine";
+import { useProfile } from "@/lib/crest/profile";
 import type { DamRecord } from "@/lib/crest/types";
 import { useClassifyAlg } from "./use-classify-alg";
+
+/** A short name for the active dam-inventory profile, shown in the header so the rules in use are always visible. */
+const PROFILE_SHORT: Record<string, string> = { nd: "North Dakota", us: "United States" };
 
 const ABOUT =
   "One window for screening, a breach run and classification. Elevations, breach, and the map update as you edit. The flood model (LISFLOOD-FP, then ANUGA or HEC-RAS if chosen) runs through the DamIT plugins from the Export & Hand-off tab; the desk's own screen is not a model run, and nothing here assigns an official hazard class.";
@@ -44,6 +48,7 @@ export function DeskHeader({
   onField: () => void;
 }) {
   const [about, setAbout] = useState(false);
+  const profile = useProfile((s) => s.profile);
   const plain = `${btn} border-line bg-card text-ink hover:bg-sand`;
   const on = `${btn} border-water bg-water text-card`;
   return (
@@ -57,6 +62,15 @@ export function DeskHeader({
           <span className="font-mono text-xs text-muted" title={`DamIT Desk ${version}`} data-testid="desk-version">
             v{version.split("+")[0]}
           </span>
+          <button
+            type="button"
+            onClick={onSettings}
+            className="rounded-full border border-line bg-sand px-2 py-0.5 text-xs text-ink"
+            title="Dam inventory profile — the rules used for the class. Change it in Settings."
+            data-testid="desk-profile-chip"
+          >
+            {PROFILE_SHORT[profile] ?? profile}
+          </button>
         </div>
         <button
           type="button"

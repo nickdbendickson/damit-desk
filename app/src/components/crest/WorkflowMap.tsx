@@ -86,6 +86,19 @@ export function WorkflowMap({ dam, deskResult, open, onToggle }: { dam: DamRecor
   const classes = (["High", "Medium", "Low"] as const).filter((c) => result.flood.receptors.some((r) => r.ndClass === c));
   return (
     <section className="wf-map relative overflow-hidden rounded-md border border-line bg-card" aria-label="Flood map" data-testid="workflow-map" id="workflow-map-body">
+      {/* The figures of record sit in a bar above the map, not over it, so they never cover the zoom and layer
+          controls (DamIT Desk UI review, 2026-11-25). */}
+      <div className="wf-map-header">
+        <dl className="wf-callouts" data-testid="map-callouts">
+          {callouts.map((c) => (
+            <div key={c.key} className="wf-callout" title={c.note} data-testid={`callout-${c.key}`}>
+              <dt>{c.label}</dt>
+              <dd>{c.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {toggle}
+      </div>
       <div className="wf-map-canvas">
         <ClientOnly fallback={<p className="p-4 text-sm text-muted">Loading the map…</p>}>
           <Suspense fallback={<p className="p-4 text-sm text-muted">Loading the map…</p>}>
@@ -93,14 +106,6 @@ export function WorkflowMap({ dam, deskResult, open, onToggle }: { dam: DamRecor
           </Suspense>
         </ClientOnly>
       </div>
-      <dl className="wf-callouts" data-testid="map-callouts">
-        {callouts.map((c) => (
-          <div key={c.key} className="wf-callout" title={c.note} data-testid={`callout-${c.key}`}>
-            <dt>{c.label}</dt>
-            <dd>{c.value}</dd>
-          </div>
-        ))}
-      </dl>
       <div className="wf-legend" data-testid="map-legend">
         <p className="wf-legend-title">Max depth</p>
         {[...DEPTH_BANDS].reverse().map((b) => (
@@ -119,7 +124,6 @@ export function WorkflowMap({ dam, deskResult, open, onToggle }: { dam: DamRecor
       <p className="wf-basis" data-testid="map-basis">
         {basis}
       </p>
-      <div className="wf-map-tools">{toggle}</div>
     </section>
   );
 }
