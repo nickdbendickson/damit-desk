@@ -63,7 +63,7 @@ export function checkSummary(rows: CheckRow[], ok: boolean, at: string): NonNull
 
 /** The status bar's engine line. */
 export function engineText(s: Pick<JobStatus, "check" | "noServer">, server: boolean): { text: string; tone: "ok" | "warn" | "muted" } {
-  if (!server || s.noServer) return { text: "QGIS: no desk server (start bin/damit-desk)", tone: "warn" };
+  if (!server || s.noServer) return { text: "Not connected to QGIS — open DamIT Desk from its icon to run models", tone: "warn" };
   if (!s.check) return { text: "QGIS hand-off: not checked yet", tone: "muted" };
   if (s.check.ok) return { text: `QGIS hand-off ✓ ${s.check.found}/${s.check.total} algorithms`, tone: "ok" };
   if (s.check.total === 0) return { text: "QGIS hand-off: qgis_process not found", tone: "warn" };

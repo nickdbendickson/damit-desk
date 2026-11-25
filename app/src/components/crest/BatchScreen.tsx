@@ -537,7 +537,10 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
   ) => (
     <div>
       <p className="mb-2 text-sm text-muted">
-        {chosen.length ? `${chosen.length} chosen. ` : ""}Tick one or more {label}.{" "}
+        {chosen.length ? `${chosen.length} of ${f.length} ${label} chosen. ` : `Tick one or more ${label}.`}{" "}
+        <button type="button" className="ml-2 text-water underline" onClick={() => set(f.map((x) => x.value))}>
+          Select all
+        </button>
         {chosen.length ? (
           <button type="button" className="ml-2 text-water underline" onClick={() => set([])}>
             Clear
@@ -659,6 +662,12 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
         </div>
 
         <div className="mt-4 rounded-sm bg-sand p-3 text-sm" data-testid="batch-summary">
+          {list.length === 0 ? (
+            <p className="text-muted">
+              {by === "county" ? "Pick one or more counties" : by === "state" ? "The whole state is selected once you press Run" : "Pick the dams to run"} to
+              see how many dams there are and about how long the run will take.
+            </p>
+          ) : (
           <p>
             <strong>{list.length.toLocaleString("en-US")}</strong> selected ·{" "}
             {ready.toLocaleString("en-US")} ready to run ·{" "}
@@ -671,6 +680,7 @@ export function BatchScreen({ onOpen }: { onOpen: (note?: string) => void }) {
               : ""}
             .
           </p>
+          )}
           {summary && !rows.length ? (
             <p className="mt-1 text-muted" data-testid="batch-resume-note">
               A previous batch left {summary.rows.toLocaleString("en-US")} rows (

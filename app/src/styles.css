@@ -602,8 +602,9 @@ tr.hl-low td:first-child, tr.hl-low th:first-child { border-left: 4px solid var(
 .wf-map { min-height: 320px; }
 .wf-map .wf-map-canvas { position: relative; height: 52vh; min-height: 320px; }
 .wf-map .dash-leaflet { position: absolute; inset: 0; }
-.wf-callouts { position: absolute; top: 10px; left: 54px; z-index: 1000; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; max-width: calc(100% - 120px); pointer-events: none; }
-.wf-callout { background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); padding: 4px 8px; pointer-events: auto; }
+.wf-map-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.wf-callouts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; flex: 1 1 auto; min-width: 0; }
+.wf-callout { background: var(--card, var(--panel)); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .wf-callout dt { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .wf-callout dd { margin: 0; font: 600 15px/1.2 ui-monospace, 'Cascadia Mono', Menlo, monospace; }
 .wf-legend { position: absolute; bottom: 34px; left: 10px; z-index: 1000; background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 11px; line-height: 1.35; max-width: 220px; }
@@ -612,8 +613,7 @@ tr.hl-low td:first-child, tr.hl-low th:first-child { border-left: 4px solid var(
 .wf-legend-row span { display: inline-block; width: 14px; height: 10px; border: 1px solid rgba(0, 0, 0, 0.25); flex-shrink: 0; }
 .wf-legend-row span.round { width: 10px; border-radius: 50%; border-color: #111; }
 .wf-basis { margin: 0; padding: 2px 10px; font-size: 11px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); }
-.wf-map-tools { position: absolute; top: 10px; right: 54px; z-index: 1000; }
-.wf-map-toggle { height: 30px; padding: 0 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); font-size: 13px; }
+.wf-map-toggle { flex: 0 0 auto; height: 30px; padding: 0 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--card, var(--panel)); color: var(--ink); font-size: 13px; }
 .wf-map-toggle:focus-visible, [role="tab"]:focus-visible, [data-testid="command-box"]:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 
 /* Field mode: amber text and the High badge used the light theme's dark amber (2.9:1 on the dark panel). Use the

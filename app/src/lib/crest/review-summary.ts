@@ -26,7 +26,7 @@ export type ClassBadge = {
 export function classBadge(dam: DamRecord, result: Pick<Analysis, "flood">, alg = "damit:classify"): ClassBadge {
   const st = hazardStatus(dam, result);
   const jurisdiction = choiceText(damChoice(dam));
-  if (st.state === "none") return { state: "none", text: "Not classified", note: `${alg} has not run for this dam: Classify is on the Export & Hand-off tab.`, ordinal: null, jurisdiction };
+  if (st.state === "none") return { state: "none", text: "Not classified", note: `${alg} has not run for this dam yet.`, ordinal: null, jurisdiction };
   const r = st.result;
   if (st.state === "stale") return { state: "stale", text: "Out of date", note: `Last result ${r.suggestedClass}, not shown as the class: ${st.why}.`, ordinal: null, jurisdiction };
   const ord = hazardOrdinal(r);

@@ -174,6 +174,15 @@ powershell -File bin\install-launcher.ps1
 That puts "DamIT Desk" and "DamIT Desk (North Dakota)" in the Start menu, with the desk icon. Each runs
 `bin\damit-desk.cmd --profile us` or `--profile nd`.
 
+### First run, by platform
+
+- **Python.** The desk needs `python3` (3.10 or newer). A fresh Mac may offer to install the Command Line Tools the
+  first time you run `python3` — accept it. Windows needs the [python.org](https://www.python.org/downloads/) installer
+  so that `py -3` works.
+- **Unsigned Mac app.** The app is not yet signed with an Apple Developer ID, so the first open may say it "cannot be
+  opened because Apple cannot check it for malicious software". Right-click (or Control-click) the app, choose **Open**,
+  then **Open** again; or allow it under **System Settings → Privacy & Security → Open Anyway**. You only do this once.
+
 ## What is not in this repo yet
 
 - A signed Mac `.dmg` and a Windows `.exe` installer. The scripts above are the install. The shortcut is the app icon; the signed installers are later.

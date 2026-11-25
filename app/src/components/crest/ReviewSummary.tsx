@@ -3,9 +3,11 @@
  * result (Not classified / Out of date / Partial shown as such), the key figures, and a sortable table of the
  * criteria hits the run scored, from the result's structured fields (lib/crest/review-summary.ts).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { rulingFlag } from "@/lib/crest/classify-list";
 import { hazardStatus } from "@/lib/crest/classify-receptors";
+import { hasDesktopServer } from "@/lib/crest/desktop-server";
+import { requestJob, useJobStatus } from "@/lib/crest/job-status";
 import {
   classBadge,
   hitRows,
@@ -50,6 +52,13 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
   const ruling = useMemo(() => rulingFlag(st.state === "none" ? null : st.result), [st]);
   const [sort, setSort] = useState<{ key: HitSortKey; desc: boolean }>({ key: "class", desc: true });
   const [all, setAll] = useState(false);
+  const [server, setServer] = useState(false);
+  useEffect(() => setServer(hasDesktopServer()), []);
+  const jobBusy = useJobStatus((s) => s.busy);
+  const classifyNow = () => {
+    requestJob("/api/classify");
+    document.getElementById("handoff-panel")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
   const rows = useMemo(() => sortHits(hits.rows, sort.key, sort.desc), [hits.rows, sort]);
   const shown = all ? rows : rows.slice(0, PAGE);
   const tid = `review-summary-${where}`;
@@ -58,7 +67,7 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs tracking-widest text-muted uppercase">Hazard classification summary</p>
-          <h2 id={`${tid}-title`} className="truncate text-2xl">
+          <h2 id={`${tid}-title`} className="text-2xl [overflow-wrap:anywhere]">
             {dam.name} {dam.nid ? <span className="text-muted">({dam.nid})</span> : null}
           </h2>
           <p className="text-sm text-muted">{badge.jurisdiction}</p>
@@ -83,8 +92,24 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
             </span>
           ) : null}
           <p className="text-xs text-muted" data-testid="class-badge-note">
-            {badge.note}
+            {badge.state === "none"
+              ? where === "report"
+                ? "Not classified yet."
+                : "Not classified yet — open the Report step to run Classify."
+              : badge.note}
           </p>
+          {where === "report" && badge.state === "none" ? (
+            <button
+              type="button"
+              onClick={classifyNow}
+              disabled={!server || jobBusy}
+              title={server ? undefined : "Open DamIT Desk from its icon to run Classify"}
+              className="mt-1 inline-flex h-10 items-center rounded-sm border border-water bg-water px-4 text-sm font-semibold text-card disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="classify-now"
+            >
+              {jobBusy ? "Classifying…" : "Classify now"}
+            </button>
+          ) : null}
           {ruling && st.state !== "none" ? (
             <p className="text-xs text-amber" data-testid="class-badge-ruling-text">
               {ruling.text}
@@ -113,7 +138,11 @@ export function ReviewSummary({ dam, result, where }: { dam: DamRecord; result: 
         </h3>
         {hits.source === "none" ? (
           <p className="mt-1 text-sm text-muted" data-testid="hits-none">
-            {st.state === "none" ? `No ${alg} result yet: run Classify… on the Export & Hand-off tab to list the hits.` : "This result lists no criteria hits."}
+            {st.state === "none"
+              ? where === "report"
+                ? `No ${alg} result yet. Use the Classify button above to list the hits.`
+                : `No ${alg} result yet. Open the Report step and run Classify to list the hits.`
+              : "This result lists no criteria hits."}
           </p>
         ) : (
           <>

@@ -6,6 +6,7 @@
  * browser and move as a file (Open / Save settings file).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 
 import { saveText } from "@/lib/crest/save";
 import {
@@ -82,8 +83,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <div className="mx-auto max-w-6xl px-4 py-4">
         <div className="flex flex-wrap items-baseline gap-3">
           <h2 className="text-xl">Settings: shared defaults</h2>
-          <button type="button" className="ml-auto h-10 px-2 text-sm text-muted" onClick={onClose} data-testid="settings-close">
-            Close
+          <button type="button" className="ml-auto inline-flex h-10 items-center gap-1 rounded-sm border border-line bg-card px-3 text-sm text-ink hover:bg-sand" onClick={onClose} data-testid="settings-close">
+            <X className="size-4" aria-hidden="true" /> Close
           </button>
         </div>
         <p className="mt-1 max-w-3xl text-sm text-muted">

@@ -71,7 +71,7 @@ export const METHOD_LABEL: Record<DashMethod, string> = {
   model: "Layer of record: imported model run",
   routed: "Fast layer (terrain method): routed flood",
   outline: "Fast layer (terrain method): terrain outline",
-  "strip-legacy": "Legacy strip — dated fallback",
+  "strip-legacy": "Rough estimate — not a flood model run",
 };
 
 /**
