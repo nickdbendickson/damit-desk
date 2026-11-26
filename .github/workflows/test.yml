@@ -17,6 +17,16 @@ jobs:
       - name: Headless desk tests
         run: python app/desktop/tests/run_tests.py
 
+  boann-windows:
+    # The model step runs the DamIT Runner, and on a Windows PC (no C++ compiler) the Runner can run
+    # Boann only from the CPU libraries its zip ships. damit's boann_windows.yml builds them, packages
+    # the Runner zip, and on windows-latest runs a short Boann deck end to end from that zip with no
+    # compiler (scripts/boann_windows_check.py). damit is public, so this needs no token.
+    # TEMPORARY: pinned to damit's ci/boann-windows-engine branch until damit #213 merges; then @main.
+    uses: nickdbendickson/damit/.github/workflows/boann_windows.yml@ci/boann-windows-engine
+    with:
+      damit_ref: ci/boann-windows-engine
+
   web:
     # The web desk: typecheck, lint, the node tests (scripts/ and src/lib/crest/) and a fresh bundle build.
     strategy:
