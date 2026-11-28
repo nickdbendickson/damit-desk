@@ -79,7 +79,6 @@ import type {
   DatumName,
   EngineName,
   FailureMode,
-  HazardResult,
   ScreenLevel,
   StepId,
 } from "@/lib/crest/types";
@@ -136,6 +135,9 @@ import { ProgressRing, RailChecklist } from "./RailChecklist";
 import { ReviewSummary } from "./ReviewSummary";
 import { ClassifyReceptorsPanel } from "./ClassifyReceptors";
 import { useRulingBackfill } from "./use-classify-receptors";
+import { ClassBanner } from "./ClassBanner";
+import { useRationaleExport } from "./use-rationale-export";
+import { parseDriving } from "@/lib/crest/class-drivers";
 
 // Leaflet touches `window` when it loads, so the map is a client-only chunk.
 const MapDraw = lazy(() => import("./MapDraw").then((m) => ({ default: m.MapDraw })));
@@ -562,6 +564,8 @@ export function Desk() {
             </p>
           ) : null}
           <GettingStarted server={server} onCheck={() => startJob("/api/check")} />
+          {/* The class for the chosen jurisdiction with its caveats, on every desk tab (ClassBanner.tsx). */}
+          {view === "desk" ? <ClassBanner dam={dam} result={recordAnalysis} /> : null}
           {/* Map-centric redesign (matches Damit Crest PR #148): the workflow moves from a horizontal
               tab strip to a persistent three-pane layout — pipeline rail left, step content centre,
               inspector right. The old tab nav is retired; states show prerequisite problems before
@@ -2102,7 +2106,7 @@ function PluginPanel({ dam, result }: { dam: DamRecord; result: ReturnType<typeo
                   ranPreset: str(c.ranPreset),
                   ranPresetLabel: str(c.ranPresetLabel),
                   ranMode: str(c.ranMode),
-                  driving: Array.isArray(c.driving) ? (c.driving as NonNullable<HazardResult["driving"]>).slice(0, 8) : [],
+                  driving: parseDriving(c.driving),
                   hits: parseHits(c.hits),
                   hitsTotal: typeof c.hitsTotal === "number" ? c.hitsTotal : undefined,
                   warnings: typeof c.warnings === "number" ? c.warnings : 0,
@@ -2891,6 +2895,7 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
   const stripPlssTable = stripPlss.state === "ready" ? stripPlss.table : null;
   const stripNd911Table = stripNd911.state === "ready" ? stripNd911.table : null;
   const [saved, setSaved] = useState<string | null>(null);
+  const rationale = useRationaleExport(dam, result);
   const save = useCallback(async (name: string, text: string, type?: string) => {
     const r = await saveText(name, text, type);
     if (r.status === "saved") setSaved(r.path ? `Saved ${r.path}` : null);
@@ -2912,6 +2917,16 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
         </button>
         <button type="button" className={btn} onClick={() => void save(`${root}_dam.json`, exportDamJson(dam, result, sharedNow()), "application/json")}>
           dam.json
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => void rationale.run()}
+          disabled={rationale.busy}
+          data-testid="export-rationale"
+          title="rationale.json: the class, its status, the receptors and criteria that drove it, the DEM checksum and the model and app versions"
+        >
+          {rationale.busy ? "Exporting…" : "Export rationale…"}
         </button>
         {(["par", "bci", "bdy"] as const).map((ext) => (
           <button
@@ -3001,6 +3016,11 @@ function ExportPanel({ dam, result, desk }: { dam: DamRecord; result: ReturnType
           ? `${nd911Table.rows.length} inside the ${nd911Table.against}${ol ? ` (in its GeoJSON/KML and the CSV)${stripNd911Table ? `; ${stripNd911Table.rows.length} inside the flood strip (in the strip files)` : ""}` : ", as points in the strip GeoJSON/KML and in the CSV"}. ${ND911_ATTRIBUTION}`
           : nd911.message}
       </p>
+      {rationale.note ? (
+        <p className="mt-2 text-xs text-muted" role="status" data-testid="export-rationale-note">
+          {rationale.note}
+        </p>
+      ) : null}
       {saved ? (
         <p className="mt-2 text-xs text-muted" role="status">
           {saved}

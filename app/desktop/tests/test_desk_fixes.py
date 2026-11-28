@@ -619,6 +619,26 @@ class BrowserApiTests(unittest.TestCase):
         self.assertEqual(Path(saved["saved"]).read_bytes()[:4], b"\x89PNG")
         self.assertEqual(self.req("GET", "/api/export_dir")[1]["dir"], str((self.root / "work").resolve() / "exports"))
 
+    def test_dem_digest_for_the_rationale(self):
+        """rationale.json (2026-11-27): GET /api/dem/digest names and hashes the chosen DEM only (no path from the
+        page), and says 3DEP when none is chosen."""
+        import hashlib
+
+        self.assertEqual(self.req("GET", "/api/dem/digest", token=False)[0], 403)
+        (self.root / "work").mkdir(exist_ok=True)
+        dem = self.root / "work" / "digest.vrt"
+        dem.write_bytes(b"<VRTDataset/>")
+        self.assertEqual(self.req("POST", "/api/dem/choose", {"path": str(dem)})[0], 200)
+        status, got = self.req("GET", "/api/dem/digest?path=/etc/passwd")
+        self.assertEqual(status, 200)
+        self.assertEqual((got["kind"], got["path"], got["bytes"]), ("local", str(dem), 13))
+        self.assertEqual(got["sha256"], hashlib.sha256(b"<VRTDataset/>").hexdigest())
+        self.assertIn(".vrt", got["note"])
+        self.assertTrue(got["modified"].endswith("Z"))
+        self.assertEqual(self.req("POST", "/api/dem/clear", {})[0], 200)
+        status, got = self.req("GET", "/api/dem/digest")
+        self.assertEqual((status, got["kind"], got["sha256"]), (200, "3dep", None))
+
 
 @unittest.skipIf(os.name == "nt" or shutil.which("sh") is None, "the Linux / Mac launcher is a shell script")
 class LauncherTests(unittest.TestCase):

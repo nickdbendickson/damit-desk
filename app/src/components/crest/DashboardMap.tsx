@@ -23,6 +23,8 @@ export type DashPoint = {
   color: string;
   label?: string;
   ring?: boolean;
+  /** One of the receptors the class rests on (class-drivers.ts): drawn larger with a heavy outline. */
+  driver?: boolean;
 };
 
 type Props = {
@@ -34,6 +36,8 @@ type Props = {
   hillshade: boolean;
   overlays: Overlay[];
   fit: Bounds | null;
+  /** Click a receptor dot: open it in the receptor inspector (ReceptorInspector.tsx). */
+  onPick?: (id: string, source: "desk" | "classify") => void;
 };
 
 const ll = (b: Bounds) => L.latLngBounds([b.south, b.west], [b.north, b.east]);
@@ -125,7 +129,10 @@ function DepthLayer({ depth }: { depth: FloodStrip | null }) {
   return null;
 }
 
-export function DashboardMap({ depth, points, classify = [], arrival, hillshade, overlays, fit }: Props) {
+export function DashboardMap({ depth, points, classify = [], arrival, hillshade, overlays, fit, onPick }: Props) {
+  // The groups below are rebuilt only when their points change, so the click handler is read through a ref.
+  const pick = useRef(onPick);
+  pick.current = onPick;
   return (
     <MapContainer center={ND_CENTER} zoom={12} className="dash-leaflet" scrollWheelZoom preferCanvas>
       <LayersControl position="topright">
@@ -166,8 +173,15 @@ export function DashboardMap({ depth, points, classify = [], arrival, hillshade,
           if (!classify.length) return null;
           const g = L.featureGroup();
           for (const p of classify) {
-            const m = L.circleMarker([p.lat, p.lon], { radius: 4, color: "#111", weight: 1, fillColor: p.color, fillOpacity: 0.9 });
+            const m = L.circleMarker([p.lat, p.lon], {
+              radius: p.driver ? 6 : 4,
+              color: "#111",
+              weight: p.driver ? 3 : 1,
+              fillColor: p.color,
+              fillOpacity: 0.9,
+            });
             m.bindTooltip(escHtml(p.label ?? p.name), { direction: "top" });
+            m.on("click", () => pick.current?.(p.id, "classify"));
             g.addLayer(m);
           }
           return g;
@@ -180,13 +194,14 @@ export function DashboardMap({ depth, points, classify = [], arrival, hillshade,
           const g = L.featureGroup();
           for (const p of points) {
             const m = L.circleMarker([p.lat, p.lon], {
-              radius: 6,
+              radius: p.driver ? 8 : 6,
               color: p.ring ? p.color : "#111",
-              weight: 2,
+              weight: p.driver ? 3.5 : 2,
               fillColor: p.color,
               fillOpacity: p.ring ? 0.15 : 0.95,
             });
             m.bindTooltip(escHtml(p.label ?? p.name), { direction: "top" });
+            m.on("click", () => pick.current?.(p.id, "desk"));
             g.addLayer(m);
           }
           return g;

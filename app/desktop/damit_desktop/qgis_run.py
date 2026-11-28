@@ -1723,6 +1723,9 @@ def _run_classify_nd(dam: dict, folder: Path, cfg: HandoffConfig, log, base: dic
     return out
 
 
+#: The most receptor ids kept per driving hit (damit_hazard_report.json "driving"); the count is kept in full.
+MAX_DRIVER_IDS = 50
+
 #: The most criteria hits the desk keeps with a dam (the Review tab's table); the report and GeoPackage keep them all.
 MAX_HITS = 300
 
@@ -1802,11 +1805,15 @@ def read_hazard_report(out_dir: Path) -> dict | None:
     for h in (res.get("driving") or [])[:8]:
         if isinstance(h, dict):
             cls = h.get("class")
+            recs = [str(r) for r in (h.get("receptors") or []) if isinstance(r, (str, int)) and not isinstance(r, bool)]
             driving.append({
                 "method": str(h.get("method") or ""),
                 "label": str(labels.get(str(cls), labels.get(cls, cls)) if cls is not None else ""),
                 "reason": str(h.get("reason") or "")[:300],
                 "receptors": len(h.get("receptors") or []),
+                # Which receptors drove the class (rationale.json, the receptor inspector), not just how many: the
+                # first MAX_DRIVER_IDS ids; "receptors" stays the full count. Read only; the class is not touched.
+                "receptorIds": recs[:MAX_DRIVER_IDS],
             })
     flags = [f for f in res.get("flags") or [] if isinstance(f, dict) and f.get("level") in ("error", "warning")]
     # What the run found affected among the real receptors (for the printed report's table): receptors with a hit, by

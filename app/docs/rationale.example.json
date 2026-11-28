@@ -1,0 +1,289 @@
+{
+  "format": "damit_desk/rationale",
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-27T22:00:00.000Z",
+  "software": {
+    "app": "DamIT Desk",
+    "appVersion": "0.2.0+local",
+    "engineVersion": "crest-desk-engine 2026.11.12",
+    "classifyAlgorithm": "damit:classify",
+    "profile": "us"
+  },
+  "dam": {
+    "id": "nd00199",
+    "name": "Swan Buffalo Detention 12",
+    "nid": "ND00199",
+    "nidId": null,
+    "county": "Cass",
+    "lon": -97.39064,
+    "lat": 46.98364,
+    "heightFt": 27.5,
+    "storageAcFt": 1612.59,
+    "isNew": false,
+    "classOfRecord": "ND MEDIUM (NID hazard Significant)",
+    "nidHazard": null
+  },
+  "classification": {
+    "status": "current",
+    "statusWhy": null,
+    "headline": "DamIT classification (North Dakota (REG_05.2026)): High",
+    "algorithm": "damit:classify",
+    "jurisdiction": {
+      "mode": "preset",
+      "preset": "ND",
+      "presetLabel": "North Dakota (REG_05.2026)",
+      "methods": [],
+      "advisory": false,
+      "text": "North Dakota (REG_05.2026)",
+      "key": "preset:ND:"
+    },
+    "ran": {
+      "preset": "ND",
+      "presetLabel": "North Dakota (REG_05.2026)",
+      "mode": "preset",
+      "algorithm": "damit:classify"
+    },
+    "suggestedClass": "High",
+    "ordinal": 3,
+    "genericLabel": "High",
+    "tm11Class": null,
+    "complete": true,
+    "notChecked": {},
+    "ruling": {
+      "status": "partly needs ruling",
+      "text": "4 of 6 High hits rest on values that still need a ruling; the other 2 are by rule. BNSF KO Subdivision: 15 trains/day from the rail lookup needs a ruling",
+      "hits": 6,
+      "unruled": 4,
+      "why": [
+        "BNSF KO Subdivision: 15 trains/day from the rail lookup needs a ruling"
+      ]
+    },
+    "drivers": {
+      "ordinal": 3,
+      "label": "High",
+      "basis": "driving",
+      "complete": true,
+      "receptors": [
+        {
+          "id": "road:240",
+          "layer": "ROADS",
+          "name": "I-94 (eastbound)",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 1.5,
+          "velFps": 2.2,
+          "methods": [
+            "M8a (AADT 2390)"
+          ],
+          "flags": [],
+          "needsRuling": false,
+          "at": [
+            -97.21,
+            46.86
+          ]
+        },
+        {
+          "id": "road:241",
+          "layer": "ROADS",
+          "name": "I-94 (westbound)",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 1.4,
+          "velFps": 2.1,
+          "methods": [
+            "M8a (AADT 2390)"
+          ],
+          "flags": [],
+          "needsRuling": false,
+          "at": [
+            -97.21,
+            46.861
+          ]
+        },
+        {
+          "id": "rail:21",
+          "layer": "RAIL",
+          "name": "BNSF KO Subdivision",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 2.1,
+          "velFps": 1.2,
+          "methods": [
+            "M9a (15 trains/day)"
+          ],
+          "flags": [
+            "trains_lookup"
+          ],
+          "needsRuling": true,
+          "at": [
+            -97.3,
+            46.9
+          ]
+        },
+        {
+          "id": "rail:22",
+          "layer": "RAIL",
+          "name": "BNSF KO Subdivision",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 1.9,
+          "velFps": 1.1,
+          "methods": [
+            "M9a (15 trains/day)"
+          ],
+          "flags": [
+            "trains_lookup"
+          ],
+          "needsRuling": true,
+          "at": [
+            -97.29,
+            46.9
+          ]
+        },
+        {
+          "id": "rail:23",
+          "layer": "RAIL",
+          "name": "BNSF KO Subdivision",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 1.7,
+          "velFps": 1,
+          "methods": [
+            "M9a (15 trains/day)"
+          ],
+          "flags": [
+            "trains_lookup"
+          ],
+          "needsRuling": true,
+          "at": [
+            -97.28,
+            46.9
+          ]
+        },
+        {
+          "id": "rail:24",
+          "layer": "RAIL",
+          "name": "BNSF KO Subdivision",
+          "label": "High",
+          "ordinal": 3,
+          "depthFt": 1.2,
+          "velFps": 0.9,
+          "methods": [
+            "M9a (15 trains/day)"
+          ],
+          "flags": [
+            "trains_lookup"
+          ],
+          "needsRuling": true,
+          "at": [
+            -97.27,
+            46.9
+          ]
+        }
+      ],
+      "receptorTotal": 6,
+      "methods": [
+        {
+          "method": "M8a",
+          "label": "High",
+          "reason": "road impacted: AADT 2390",
+          "receptorCount": 2
+        },
+        {
+          "method": "M9a",
+          "label": "High",
+          "reason": "freight line, 15 trains/day",
+          "receptorCount": 4
+        }
+      ]
+    },
+    "receptorsChecked": {
+      "STRUCTURES": 1670,
+      "ROADS": 263,
+      "RAIL": 34
+    },
+    "impacted": {
+      "STRUCTURES": 12,
+      "ROADS": 11,
+      "RAIL": 6
+    },
+    "wetStructures": 230,
+    "layerSources": {
+      "STRUCTURES": "USACE NSI",
+      "ROADS": "the DamIT data folder",
+      "RAIL": "the DamIT data folder"
+    },
+    "railTrainsLookup": "C:/DamITDams/lookups/nd_rail_trains.csv",
+    "warnings": 2,
+    "classifiedAt": "2026-11-21T20:14:03Z",
+    "report": "C:/DamITDams/ND00199/classify/damit_hazard_report.md",
+    "gpkg": "C:/DamITDams/ND00199/classify/damit_hazard_receptors.gpkg",
+    "disclaimer": "A suggested class from damit:classify: the engineer of record and the regulating agency make the determination."
+  },
+  "deskScreen": {
+    "role": "schematic preview",
+    "level": "Medium",
+    "label": "Medium",
+    "resolvedClass": "Medium",
+    "acerLevel": "judgment",
+    "judgmentAsProbable": false,
+    "drivers": [
+      {
+        "id": "abs-farm",
+        "name": "Farmstead",
+        "kind": "house",
+        "role": "sets",
+        "ndClass": "Medium",
+        "zone": "judgment",
+        "depthFt": 3.89,
+        "velocityFps": 2.89,
+        "reason": "ACER TM 11 judgment zone (house chart): Medium by rule (judgment-zone homes are Medium, not probable loss of life)",
+        "needsJudgment": false,
+        "wouldBe": null
+      }
+    ],
+    "judgment": [],
+    "consistent": true
+  },
+  "terrain": {
+    "source": "local DEM",
+    "path": "C:/DamITData/dem/cass_10m_3dep.vrt",
+    "service": null,
+    "sha256": "9f2c1d7e5b3a40c8e6f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+    "bytes": 48213,
+    "modified": "2026-11-18T15:02:11Z",
+    "note": "SHA-256 of the .vrt file itself; the tiles it lists are not hashed.",
+    "layer": null
+  },
+  "model": {
+    "sourceOfRecord": "lisflood",
+    "label": "LISFLOOD-FP (ND00199, DamIT Runner 0.9.0, Boann 5.0.0)",
+    "files": [
+      "C:/DamITDams/ND00199/runs/boann/max_depth.tif",
+      "C:/DamITDams/ND00199/runs/boann/max_velocity.tif"
+    ],
+    "importedAt": "2026-11-22T16:40:00Z",
+    "crs": "EPSG:26914",
+    "versions": {
+      "runner": "0.9.0",
+      "boann": "5.0.0",
+      "lisflood": null
+    },
+    "stats": {
+      "peakDepthFt": 14.2,
+      "wetAc": 1840,
+      "maxVelocityFps": 9.1,
+      "farthestKm": 18.4
+    },
+    "warnings": []
+  },
+  "breach": {
+    "label": "Froehlich 2008",
+    "peakCfs": 28622.993361971647,
+    "volumeAcFt": 1609.4355234707182,
+    "widthFt": 99.96612517992666,
+    "timeHr": 0.9432676579520134,
+    "startPool": "top of dam"
+  },
+  "provenance": {}
+}

@@ -15,6 +15,7 @@
 import { parseBsq, setDemOverride, type DemGrid, type DemRequest } from "./outline.ts";
 import { getServer, hasDeskServer, pickOnServer, postServer } from "./server-picker.ts";
 import { desktopToken } from "./desktop-server.ts";
+import type { DemDigest } from "./rationale.ts";
 
 type DemReply = { path?: string | null; gdalwarp?: string | null; cancelled?: boolean; error?: string };
 
@@ -145,4 +146,24 @@ export function ensureDemSource(): Promise<DemState> {
   if (state) return Promise.resolve(state);
   loading ??= loadDemSource().then((s) => (publishDemSource(s), s));
   return loading;
+}
+
+/**
+ * The chosen DEM's path, SHA-256, size and modified time for rationale.json (GET /api/dem/digest: the server reads only
+ * the DEM already chosen). null with no desk server (the web desk), or when the server cannot answer.
+ */
+export async function fetchDemDigest(fetchFn: Fetch = fetch as unknown as Fetch): Promise<DemDigest | null> {
+  if (!token()) return null;
+  try {
+    const res = await fetchFn("/api/dem/digest", { headers: { "X-DamIT-Token": token() } });
+    if (!res.ok) return null;
+    const o = JSON.parse(await res.text()) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const kind = o.kind === "local" || o.kind === "3dep" ? o.kind : "unavailable";
+    const sha = str(o.sha256);
+    return { kind, path: str(o.path), sha256: sha && /^[0-9a-f]{64}$/.test(sha) ? sha : null, bytes: n(o.bytes), modified: str(o.modified), note: str(o.note) };
+  } catch {
+    return null;
+  }
 }
