@@ -42,6 +42,9 @@ import type { Overlay } from "./ResultsMap";
 import { useAnalysisOfRecord, useStripOfRecord } from "./results-flow";
 import { layerOfRecord, RUNNER_SOURCE } from "@/lib/crest/layer-of-record";
 import { triageDam } from "@/lib/crest/triage";
+import { driverIds, hazardDrivers, screenDrivers } from "@/lib/crest/class-drivers";
+import { inspectClassifyReceptor, inspectDeskReceptor } from "@/lib/crest/receptor-inspector";
+import { ReceptorInspector } from "./ReceptorInspector";
 
 const DashboardMap = lazy(() =>
   import("./DashboardMap").then((m) => ({ default: m.DashboardMap })),
@@ -102,6 +105,11 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
   const critical = flags.find((f) => f.sev === "critical");
   const gated = !!critical && !acked;
 
+  // Which receptors the class rests on (class-drivers.ts): the desk screen's, and the classify result's when current.
+  const deskDrivers = useMemo(() => screenDrivers(result, dam.receptors), [result, dam.receptors]);
+  const deskDriverIds = useMemo(() => new Set(deskDrivers.drivers.map((d) => d.id)), [deskDrivers]);
+  const [picked, setPicked] = useState<{ id: string; source: "desk" | "classify" } | null>(null);
+
   const placed = useMemo(() => {
     const byId = new Map(result.flood.receptors.map((r) => [r.id, r]));
     return receptorPoints(dam, result).map((p) => ({ p, r: byId.get(p.id) }));
@@ -115,8 +123,9 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
         lat: p.lat,
         color: r?.ndClass ? CLASS_COLOR[r.ndClass] : r?.flooded ? crest.teal : "#9CA3AF",
         label: `${p.name}: ${r ? (r.flooded ? `${num(r.depthFt, 2)} ft` : r.unresolved ? "unresolved" : "dry") : "—"}${r?.ndClass ? ` · ${r.ndClass}` : ""}`,
+        driver: deskDriverIds.has(p.id),
       })),
-    [placed],
+    [placed, deskDriverIds],
   );
   const arrival = useMemo(
     () =>
@@ -134,6 +143,9 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
   // The real receptors damit:classify judged, as small dots by class (the table below lists them with names).
   const judged = useClassifyReceptors(dam);
   const classifyAlg = useClassifyAlg(dam.hazardResult);
+  const current = hazardStatus(dam, deskResult).state === "current";
+  const drivers = useMemo(() => hazardDrivers(current ? dam.hazardResult : null, judged.list ?? null), [current, dam.hazardResult, judged.list]);
+  const classifyDriverIds = useMemo(() => driverIds(drivers), [drivers]);
   const classifyPoints = useMemo<DashPoint[]>(
     () =>
       (judged.list?.receptors ?? [])
@@ -145,9 +157,16 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
           lat: r.at![1],
           color: classColor(r.ordinal),
           label: `${r.name}: ${r.label || "wet, no hit"}${r.depthFt != null ? ` · ${r.depthFt} ft` : ""} (${classifyAlg})`,
+          driver: classifyDriverIds.has(r.rid),
         })),
-    [judged.list, classifyAlg],
+    [judged.list, classifyAlg, classifyDriverIds],
   );
+  const inspection = useMemo(() => {
+    if (!picked) return null;
+    if (picked.source === "desk") return inspectDeskReceptor(dam, result, picked.id, deskDrivers);
+    const row = judged.list?.receptors.find((r) => r.rid === picked.id);
+    return row ? inspectClassifyReceptor(row, drivers, classifyAlg) : null;
+  }, [picked, dam, result, deskDrivers, judged.list, drivers, classifyAlg]);
 
   // Compare with a Runner run: the imported LISFLOOD-FP (else DSS-WISE) max depth, when loaded in this session.
   const runs = useResults((s) => s.runs);
@@ -224,6 +243,7 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
                 hillshade={layers.hillshade}
                 overlays={layers.runnerOverlay ? overlay.overlays : []}
                 fit={fit}
+                onPick={(id, source) => setPicked({ id, source })}
               />
             </Suspense>
           </ClientOnly>
@@ -236,6 +256,8 @@ export function Dashboard({ dam, result: deskResult }: { dam: DamRecord; result:
           method={method}
         />
       </div>
+
+      <ReceptorInspector inspection={inspection} onClose={() => setPicked(null)} />
 
       <div className="dash-bottom">
         <HydrographPane series={result.breach.series} />

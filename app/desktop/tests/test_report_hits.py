@@ -62,6 +62,24 @@ class ReportHits(unittest.TestCase):
         self.assertEqual(got["hits"][0]["label"], "High")
         self.assertEqual(got["impacted"], {"ROADS": 1})
 
+    def test_driving_keeps_which_receptors(self):
+        """rationale.json / the receptor inspector (2026-11-27): the driving hits keep their receptor ids, not just a
+        count; the count, method, label and reason are what they were."""
+        many = {"method": "M2", "class": 3, "reason": "homes wet", "receptors": [f"structure:{i}" for i in range(70)]}
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "damit_hazard_report.json").write_text(json.dumps(
+                {"config": {"labels": LABELS}, "hits": HITS, "driving": HITS[1:3] + [many, {"method": "M0", "class": 3,
+                                                                                         "receptors": [True, 7, None]}]}))
+            got = qr.read_hazard_report(Path(tmp))
+        d = got["driving"]
+        self.assertEqual(d[0], {"method": "M8a", "label": "High", "reason": "road impacted: AADT 2390", "receptors": 1,
+                                "receptorIds": ["road:240"]})
+        self.assertEqual(d[1]["receptorIds"], ["rail:21", "rail:22"])
+        self.assertEqual(d[2]["receptors"], 70)
+        self.assertEqual(len(d[2]["receptorIds"]), qr.MAX_DRIVER_IDS)
+        self.assertEqual(d[2]["receptorIds"][0], "structure:0")
+        self.assertEqual(d[3]["receptorIds"], ["7"], "booleans and nulls are not ids")
+
 
 if __name__ == "__main__":
     unittest.main()

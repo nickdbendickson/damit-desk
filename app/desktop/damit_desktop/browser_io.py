@@ -174,6 +174,50 @@ def dem_state(settings_file: Path | None) -> dict:
     return {"path": localdem.read_dem_path(settings_file), "gdalwarp": localdem.find_gdalwarp()}
 
 
+#: Largest DEM file dem_digest hashes (2 GiB, a few seconds); a bigger one is pinned by size and modified time.
+DEM_DIGEST_CAP = 2 * 1024 * 1024 * 1024
+_DEM_DIGESTS: dict[tuple[str, int, int], str] = {}
+
+
+def dem_digest(settings_file: Path | None, cap: int = DEM_DIGEST_CAP) -> dict:
+    """The desk's chosen DEM for rationale.json (2026-11-27): its path, SHA-256, size and modified time. Takes no path
+    from the page: only the DEM already chosen is read. 3DEP (none chosen) has no file to hash. A .vrt is hashed as the
+    .vrt file; the tiles it lists are not (the note says so). Hashes are kept per (path, size, mtime), so an export
+    after the first does not read the file again."""
+    path = localdem.read_dem_path(settings_file)
+    if not path:
+        return {"kind": "3dep", "path": None, "sha256": None, "bytes": None, "modified": None,
+                "note": "USGS 3DEP elevation service: no file to hash."}
+    p = Path(path)
+    try:
+        st = p.stat()
+    except OSError as exc:
+        return {"kind": "local", "path": str(p), "sha256": None, "bytes": None, "modified": None,
+                "note": f"the DEM file could not be read: {exc.strerror or exc}"}
+    import datetime as _dt
+    modified = _dt.datetime.fromtimestamp(st.st_mtime, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    out = {"kind": "local", "path": str(p), "sha256": None, "bytes": st.st_size, "modified": modified, "note": None}
+    if st.st_size > cap:
+        out["note"] = f"larger than {cap // (1024 * 1024)} MB, so not hashed; pinned by size and modified time."
+        return out
+    key = (str(p), st.st_size, st.st_mtime_ns)
+    digest = _DEM_DIGESTS.get(key)
+    if digest is None:
+        h = hashlib.sha256()
+        try:
+            with open(p, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    h.update(block)
+        except OSError as exc:
+            out["note"] = f"the DEM file could not be read: {exc.strerror or exc}"
+            return out
+        digest = _DEM_DIGESTS[key] = h.hexdigest()
+    out["sha256"] = digest
+    if p.suffix.lower() == ".vrt":
+        out["note"] = "SHA-256 of the .vrt file itself; the tiles it lists are not hashed."
+    return out
+
+
 def choose_dem(settings_file: Path | None, path: str) -> dict:
     p = Path(str(path or "")).expanduser()
     if not str(path or "").strip() or not p.is_absolute():

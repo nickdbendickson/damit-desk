@@ -478,7 +478,7 @@ class _Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/nid/state":
             self._send_nid(parse_qs(parsed.query))
             return
-        if parsed.path in ("/api/fs/list", "/api/dem/choice", "/api/export_dir"):
+        if parsed.path in ("/api/fs/list", "/api/dem/choice", "/api/dem/digest", "/api/export_dir"):
             self._browser_get(parsed.path, parse_qs(parsed.query))
             return
         if parsed.path == "/api/handoff":
@@ -661,6 +661,9 @@ class _Handler(SimpleHTTPRequestHandler):
                                                      SETTINGS_FILE))
         elif path == "/api/dem/choice":
             self._reply(lambda: browser_io.dem_state(SETTINGS_FILE))
+        elif path == "/api/dem/digest":
+            # The chosen DEM's path and SHA-256 for rationale.json (no path from the page: only the chosen DEM is read).
+            self._reply(lambda: browser_io.dem_digest(SETTINGS_FILE))
         else:
             self._reply(lambda: {"dir": str(browser_io.export_dir(SETTINGS_FILE))})
 

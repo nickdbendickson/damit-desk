@@ -223,8 +223,12 @@ export type HazardResult = {
   ranPreset?: string | null;
   ranPresetLabel?: string | null;
   ranMode?: string | null;
-  /** The hits that set the class (method, class, reason), first few. */
-  driving?: { method: string; label: string; reason: string; receptors: number }[];
+  /**
+   * The hits that set the class (method, class, reason), first few. `receptors` is how many receptors each names;
+   * `receptorIds` which ones (first 50, from damit_hazard_report.json "driving"; class-drivers.ts). Absent in results
+   * from before 2026-11-27.
+   */
+  driving?: { method: string; label: string; reason: string; receptors: number; receptorIds?: string[] }[];
   /**
    * Every criteria hit damit:classify scored (damit_hazard_report.json "hits"), strongest class first, at most 300
    * (qgis_run.report_hits); `hitsTotal` is how many the run had. Absent in results from before 2026-11-21.
